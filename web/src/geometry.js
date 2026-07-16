@@ -13,8 +13,10 @@
  *    lands exactly on cornerR (what the flange references).
  * 3. Draft opens toward the rim (top wider than bottom) — the loft goes from
  *    the smaller bottom rectangle to the larger top rectangle.
- * 4. Chamfer height is tied to stripW (d = stripW + 1) so it spans the
- *    overhang at 45 degrees.
+ * 4. Chamfer height/inset is per-axis (dL = stripL + 1 on X, dW = stripW + 1
+ *    on Y), via a loft rather than a taper-extrude (which is isotropic) —
+ *    stripL != stripW still gets a real 45 degree chamfer on the axis with
+ *    the larger inset.
  * 5. Internal cell walls stay vertical — only the outer body lofts/drafts.
  * 6. The base taper is bounded: it only tapers over draftH (never insetting
  *    the base past wall - 0.5mm), then goes vertical up to the rim. An
@@ -111,9 +113,10 @@ export function buildTray(p) {
   const dUnbounded = p.draftDeg > 0 ? H * Math.tan(draftRad) : 0;
   const baseOffset = Math.max(0, Math.min(dUnbounded, p.wall - 0.5));
   const draftH = p.draftDeg > 0 && baseOffset > 0 ? baseOffset / Math.tan(draftRad) : 0;
-  const oL = topL + 2 * p.stripW;
+  const oL = topL + 2 * p.stripL;
   const oW = topW + 2 * p.stripW;
-  const oR = p.cornerR + p.stripW;
+  // min() keeps the corner blend clean when the two strip widths differ.
+  const oR = p.cornerR + Math.min(p.stripL, p.stripW);
   const lipT = 3 * p.nozzle;
 
   // Drafted body: bounded base taper (bottom radius derived so the top
@@ -140,9 +143,16 @@ export function buildTray(p) {
   // Flange strip flush with rim.
   part = part.fuse(rrectSketch(oL, oW, oR, H - p.flangeT).extrude(p.flangeT));
 
-  // 45 deg support chamfer (loft small bottom -> outer top).
-  const d = p.stripW + 1;
-  const cb = rrectSketch(oL - 2 * d, oW - 2 * d, oR - d, H - p.flangeT - d);
+  // 45 deg support chamfer (loft small bottom -> outer top). Per-axis inset
+  // (stripL on X, stripW on Y) so stripL != stripW still gets a real 45 deg
+  // chamfer on whichever axis has the larger inset — the other axis ends up
+  // shallower than 45 deg, which is still fine for support-free printing
+  // (never exceeds it).
+  const dL = p.stripL + 1;
+  const dW = p.stripW + 1;
+  const dR = Math.min(dL, dW);
+  const chamferH = Math.max(dL, dW);
+  const cb = rrectSketch(oL - 2 * dL, oW - 2 * dW, oR - dR, H - p.flangeT - chamferH);
   const ct = rrectSketch(oL, oW, oR, H - p.flangeT);
   part = part.fuse(cb.loftWith(ct));
 

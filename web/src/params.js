@@ -17,7 +17,8 @@ export const DEFAULTS = Object.freeze({
   floor: 2.5,
   cornerR: 8.0,
   draftDeg: 5.0,
-  stripW: 5.0,
+  stripL: 5.0, // flange strip width on the +/-X (long-axis) sides
+  stripW: 5.0, // flange strip width on the +/-Y (width-axis) sides
   lipH: 3.0,
   flangeT: 2.5,
   cellFillet: 2.0,
@@ -82,9 +83,10 @@ export function makeTrayParams(rawInput = {}) {
   const bottomL = topL - 2 * draftOffset;
   const bottomW = topW - 2 * draftOffset;
   const bottomCornerR = p.cornerR - draftOffset;
-  const outerL = topL + 2 * p.stripW;
+  const outerL = topL + 2 * p.stripL;
   const outerW = topW + 2 * p.stripW;
-  const outerR = p.cornerR + p.stripW;
+  // min() keeps the corner blend clean when the two strip widths differ.
+  const outerR = p.cornerR + Math.min(p.stripL, p.stripW);
   const overallH = H + p.lipH;
   const footprint = outerL * outerW;
 
@@ -97,7 +99,13 @@ export function makeTrayParams(rawInput = {}) {
     );
   }
 
-  // Guard 4: strip_w > lip_t, else the lip consumes the whole strip.
+  // Guard 4: strip_l > lip_t and strip_w > lip_t, else the lip consumes the
+  // whole strip on that axis.
+  if (p.stripL <= lipT) {
+    errors.push(
+      `strip_l (${p.stripL}) must exceed lip_t (${lipT.toFixed(3)}); otherwise the lip consumes the whole flange strip.`
+    );
+  }
   if (p.stripW <= lipT) {
     errors.push(
       `strip_w (${p.stripW}) must exceed lip_t (${lipT.toFixed(3)}); otherwise the lip consumes the whole flange strip.`

@@ -98,3 +98,43 @@ def test_build_tall_cell_cell_corner_fillet_present(tmp_path):
     p = TrayParams(n_cells=1, cell_h=80.0, cell_fillet=2.0)
     mesh = _mesh_for(p, "tall_cell_fillet", tmp_path)
     _assert_watertight_genus0(mesh)
+
+
+def test_build_equal_strip_matches_footprint(tmp_path):
+    # strip_l == strip_w must reproduce the old centered-racetrack solid.
+    p = TrayParams(n_cells=2, strip_l=5.0, strip_w=5.0)
+    mesh = _mesh_for(p, "strip_equal", tmp_path)
+    _assert_watertight_genus0(mesh)
+    extents = sorted(mesh.bounding_box.extents[:2])
+    expected = sorted([p.outer_L, p.outer_W])
+    assert extents[0] == pytest.approx(expected[0], rel=1e-2)
+    assert extents[1] == pytest.approx(expected[1], rel=1e-2)
+    assert mesh.bounding_box.extents[2] == pytest.approx(p.overall_H, rel=1e-2)
+
+
+def test_build_unequal_strip_watertight_and_correct_footprint(tmp_path):
+    p = TrayParams(n_cells=2, strip_l=12.0, strip_w=5.0)
+    mesh = _mesh_for(p, "strip_unequal", tmp_path)
+    _assert_watertight_genus0(mesh)
+    extents = sorted(mesh.bounding_box.extents[:2])
+    expected = sorted([p.outer_L, p.outer_W])
+    assert extents[0] == pytest.approx(expected[0], rel=1e-2)
+    assert extents[1] == pytest.approx(expected[1], rel=1e-2)
+
+
+def test_build_unequal_strip_other_direction(tmp_path):
+    p = TrayParams(n_cells=1, strip_l=5.0, strip_w=12.0)
+    mesh = _mesh_for(p, "strip_unequal_2", tmp_path)
+    _assert_watertight_genus0(mesh)
+
+
+def test_build_unequal_strip_tall_cell(tmp_path):
+    p = TrayParams(n_cells=1, cell_h=80.0, strip_l=12.0, strip_w=5.0)
+    mesh = _mesh_for(p, "strip_unequal_tall", tmp_path)
+    _assert_watertight_genus0(mesh)
+
+
+def test_build_unequal_strip_long_axis_y(tmp_path):
+    p = TrayParams(n_cells=2, long_axis="Y", strip_l=12.0, strip_w=5.0)
+    mesh = _mesh_for(p, "strip_unequal_axisY", tmp_path)
+    _assert_watertight_genus0(mesh)

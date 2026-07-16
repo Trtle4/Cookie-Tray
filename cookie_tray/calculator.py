@@ -34,6 +34,7 @@ class ProductSpec:
     floor: float = 2.5
     corner_r: float = 8.0
     draft_deg: float = 5.0
+    strip_l: float = 5.0
     strip_w: float = 5.0
     lip_h: float = 3.0
     flange_t: float = 2.5
@@ -88,6 +89,7 @@ def derive_params(spec: ProductSpec) -> TrayParams:
         floor=spec.floor,
         corner_r=spec.corner_r,
         draft_deg=spec.draft_deg,
+        strip_l=spec.strip_l,
         strip_w=spec.strip_w,
         lip_h=spec.lip_h,
         flange_t=spec.flange_t,

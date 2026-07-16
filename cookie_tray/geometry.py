@@ -20,6 +20,11 @@ spec ("Gotchas") before touching either:
 4. The trough cut is extended a few mm above the rim so the boolean cut
    passes cleanly through the flange/lip instead of leaving a coincident
    face (and a boolean sliver) exactly at z=H.
+5. The flange strip (and therefore the whole outer racetrack -- flange,
+   chamfer, lip) can have different insets on the long-axis sides
+   (``strip_l``) vs the width-axis sides (``strip_w``). The chamfer uses a
+   loft (not a taper-extrude, which is isotropic) so each axis gets its own
+   inset; see ``loft_rrect``.
 """
 
 from __future__ import annotations
@@ -35,6 +40,27 @@ def rrect(L: float, W: float, r: float) -> cq.Sketch:
     """A rounded-rectangle ("racetrack") sketch of overall size L x W, corner radius r."""
     r = max(min(r, min(L, W) / 2 - 0.01), 0.4)
     return cq.Workplane("XY").sketch().rect(L, W).vertices().fillet(r).finalize()
+
+
+def _rrect_wire(L: float, W: float, r: float, z: float) -> cq.Wire:
+    """The outer wire of an ``rrect`` profile, located at height ``z``."""
+    sk = rrect(L, W, r).val()
+    wire = sk._faces.Wires()[0]
+    return wire.located(cq.Location(cq.Vector(0, 0, z)))
+
+
+def loft_rrect(
+    L1: float, W1: float, r1: float, z1: float, L2: float, W2: float, r2: float, z2: float
+) -> cq.Workplane:
+    """Loft between two rounded-rectangle profiles of independent size/height.
+
+    Unlike a taper-extrude (isotropic — the same inset in every direction),
+    a loft can have different X and Y insets between the two profiles, which
+    the chamfer needs when ``strip_l != strip_w``.
+    """
+    w1 = _rrect_wire(L1, W1, r1, z1)
+    w2 = _rrect_wire(L2, W2, r2, z2)
+    return cq.Workplane("XY").add(cq.Solid.makeLoft([w1, w2]))
 
 
 def trough_neg(
@@ -143,11 +169,21 @@ def build_tray(params: TrayParams) -> cq.Workplane:
     )
 
     # 45 deg support chamfer, expands upward to the flange outer edge.
-    d = p.strip_w + 1
+    # Per-axis inset (strip_l on X, strip_w on Y) via a loft rather than a
+    # (necessarily isotropic) taper-extrude, so strip_l != strip_w still
+    # gets a real 45 deg chamfer on whichever axis has the larger inset —
+    # the other axis ends up shallower than 45 deg, which is still fine for
+    # support-free printing (never exceeds it).
+    d_l = p.strip_l + 1
+    d_w = p.strip_w + 1
+    d_r = min(d_l, d_w)
+    chamfer_h = max(d_l, d_w)
+    chamfer_z = H - p.flange_t - chamfer_h
     body = body.union(
-        rrect(o_L - 2 * d, o_W - 2 * d, o_r - d)
-        .extrude(d, taper=-45.0)
-        .translate((0, 0, H - p.flange_t - d))
+        loft_rrect(
+            o_L - 2 * d_l, o_W - 2 * d_w, o_r - d_r, chamfer_z,
+            o_L, o_W, o_r, H - p.flange_t,
+        )
     )
 
     # Perimeter lip (ring).

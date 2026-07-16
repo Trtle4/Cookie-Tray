@@ -28,7 +28,8 @@ class TrayParams:
     floor: float = 2.5
     corner_r: float = 8.0
     draft_deg: float = 5.0
-    strip_w: float = 5.0
+    strip_l: float = 5.0  # flange strip width on the +/-X (long-axis) sides
+    strip_w: float = 5.0  # flange strip width on the +/-Y (width-axis) sides
     lip_h: float = 3.0
     flange_t: float = 2.5
     cell_fillet: float = 2.0
@@ -75,7 +76,13 @@ class TrayParams:
                 f"({self.draft_offset:.4f}); otherwise bottom_corner_r is non-positive."
             )
 
-        # Guard 4: strip_w > lip_t, else the lip consumes the whole strip.
+        # Guard 4: strip_l > lip_t and strip_w > lip_t, else the lip consumes
+        # the whole strip on that axis.
+        if self.strip_l <= self.lip_t:
+            raise ValueError(
+                f"strip_l ({self.strip_l}) must exceed lip_t ({self.lip_t:.4f}); "
+                "otherwise the lip consumes the whole flange strip."
+            )
         if self.strip_w <= self.lip_t:
             raise ValueError(
                 f"strip_w ({self.strip_w}) must exceed lip_t ({self.lip_t:.4f}); "
@@ -148,7 +155,7 @@ class TrayParams:
 
     @property
     def outer_L(self) -> float:
-        return self.top_L + 2 * self.strip_w
+        return self.top_L + 2 * self.strip_l
 
     @property
     def outer_W(self) -> float:
@@ -156,7 +163,8 @@ class TrayParams:
 
     @property
     def outer_r(self) -> float:
-        return self.corner_r + self.strip_w
+        # min() keeps the corner blend clean when the two strip widths differ.
+        return self.corner_r + min(self.strip_l, self.strip_w)
 
     @property
     def overall_H(self) -> float:

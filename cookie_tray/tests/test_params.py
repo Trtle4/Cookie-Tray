@@ -69,6 +69,11 @@ def test_guard4_strip_w_not_exceeding_lip_t_raises():
         TrayParams(strip_w=1.0, nozzle=0.42)  # lip_t = 1.26 > strip_w
 
 
+def test_guard4_strip_l_not_exceeding_lip_t_raises():
+    with pytest.raises(ValueError, match="strip_l"):
+        TrayParams(strip_l=1.0, nozzle=0.42)  # lip_t = 1.26 > strip_l
+
+
 def test_guard5_cell_wid_too_small_for_fillet_raises():
     with pytest.raises(ValueError, match="cell_wid"):
         TrayParams(cell_wid=3.0, cell_fillet=2.0)
@@ -99,6 +104,7 @@ def test_derived_values():
         floor=2.5,
         corner_r=8.0,
         draft_deg=5.0,
+        strip_l=5.0,
         strip_w=5.0,
         lip_h=3.0,
         nozzle=0.42,
@@ -113,6 +119,13 @@ def test_derived_values():
     assert p.overall_H == pytest.approx(p.H + 3.0)
     assert p.footprint == pytest.approx(p.outer_L * p.outer_W)
     assert p.bottom_corner_r == pytest.approx(p.corner_r - p.draft_offset)
+
+
+def test_derived_values_unequal_strip_l_strip_w():
+    p = TrayParams(n_cells=2, strip_l=12.0, strip_w=5.0)
+    assert p.outer_L == pytest.approx(p.top_L + 24.0)
+    assert p.outer_W == pytest.approx(p.top_W + 10.0)
+    assert p.outer_r == pytest.approx(p.corner_r + 5.0)  # min(strip_l, strip_w)
 
 
 def test_derived_values_are_read_only():

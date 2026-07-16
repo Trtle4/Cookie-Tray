@@ -98,6 +98,7 @@ function readDirectInput() {
     floor: raw.floor,
     cornerR: raw.cornerR,
     draftDeg: raw.draftDeg,
+    stripL: raw.stripL,
     stripW: raw.stripW,
     lipH: raw.lipH,
     flangeT: raw.flangeT,
@@ -119,6 +120,8 @@ function readProductInput() {
     sideClearance: raw.sideClearance,
     endClearance: raw.endClearance,
     cradleClearance: raw.cradleClearance,
+    stripL: raw.stripLProduct,
+    stripW: raw.stripWProduct,
     longAxis: raw.longAxisProduct,
   };
 }
