@@ -69,7 +69,16 @@ export function makeTrayParams(rawInput = {}) {
   const topL = p.cellLen + 2 * p.wall;
   const topW = p.nCells * p.cellWid + (p.nCells + 1) * p.wall;
   const H = p.floor + p.cellH;
-  const draftOffset = H * Math.tan((p.draftDeg * Math.PI) / 180);
+  const draftRad = (p.draftDeg * Math.PI) / 180;
+  // Bounded base taper offset: never exceeds wall - 0.5mm, regardless of
+  // cell height. An unbounded H*tan(draftDeg) would inset the base past
+  // the wall thickness on tall cells, undercutting them — geometry.js lofts
+  // only up to draftH and goes vertical above that instead of tapering the
+  // full height H (see buildTray).
+  const dUnbounded = p.draftDeg > 0 ? H * Math.tan(draftRad) : 0;
+  const draftOffset = Math.max(0, Math.min(dUnbounded, p.wall - 0.5));
+  // Height at which the base taper completes and walls go vertical.
+  const draftH = p.draftDeg > 0 && draftOffset > 0 ? draftOffset / Math.tan(draftRad) : 0;
   const bottomL = topL - 2 * draftOffset;
   const bottomW = topW - 2 * draftOffset;
   const bottomCornerR = p.cornerR - draftOffset;
@@ -79,10 +88,12 @@ export function makeTrayParams(rawInput = {}) {
   const overallH = H + p.lipH;
   const footprint = outerL * outerW;
 
-  // Guard 3: corner_r > D, else bottom_corner_r goes non-positive.
+  // Guard 3: corner_r > base_offset (the bounded taper offset), else
+  // bottom_corner_r goes non-positive. Cell height is unrestricted since
+  // draftOffset is capped regardless of how tall the cell is.
   if (p.cornerR <= draftOffset) {
     errors.push(
-      `corner_r (${p.cornerR}) must exceed the draft offset D (${draftOffset.toFixed(3)}); otherwise bottom_corner_r is non-positive.`
+      `corner_r (${p.cornerR}) must exceed the base taper offset (${draftOffset.toFixed(3)}); otherwise bottom_corner_r is non-positive.`
     );
   }
 
@@ -111,6 +122,7 @@ export function makeTrayParams(rawInput = {}) {
     topW,
     H,
     draftOffset,
+    draftH,
     bottomL,
     bottomW,
     bottomCornerR,

@@ -64,11 +64,14 @@ class TrayParams:
                 "the rounded bottom cannot complete otherwise."
             )
 
-        # Guard 3: corner_r > D, else bottom_corner_r goes non-positive and the
-        # drafted racetrack degenerates.
+        # Guard 3: corner_r > base_offset (the bounded base taper offset,
+        # never more than wall - 0.5mm — see draft_offset), else
+        # bottom_corner_r goes non-positive and the drafted racetrack
+        # degenerates. Cell height is unrestricted since draft_offset is
+        # capped regardless of how tall the cell is.
         if self.corner_r <= self.draft_offset:
             raise ValueError(
-                f"corner_r ({self.corner_r}) must exceed the draft offset D "
+                f"corner_r ({self.corner_r}) must exceed the base taper offset "
                 f"({self.draft_offset:.4f}); otherwise bottom_corner_r is non-positive."
             )
 
@@ -113,7 +116,23 @@ class TrayParams:
 
     @property
     def draft_offset(self) -> float:
-        return self.H * tan(radians(self.draft_deg))
+        """Base taper offset actually applied to the body's bottom footprint.
+
+        Bounded to never exceed ``wall - 0.5``mm, regardless of how tall the
+        cell is: an unbounded ``H * tan(draft_deg)`` would inset the base
+        past the wall thickness on tall cells, undercutting the cells (see
+        ``geometry.build_tray``, which lofts only up to ``draft_h`` and goes
+        vertical above that instead of tapering over the full height ``H``).
+        """
+        unbounded = self.H * tan(radians(self.draft_deg)) if self.draft_deg > 0 else 0.0
+        return max(0.0, min(unbounded, self.wall - 0.5))
+
+    @property
+    def draft_h(self) -> float:
+        """Height at which the base taper completes and walls go vertical."""
+        if self.draft_deg <= 0 or self.draft_offset <= 0:
+            return 0.0
+        return self.draft_offset / tan(radians(self.draft_deg))
 
     @property
     def bottom_L(self) -> float:

@@ -115,6 +115,7 @@ function readProductInput() {
     qtyTotal: raw.qtyTotal,
     nCells: byPerCell ? null : raw.nCellsProduct,
     cookiesPerCell: byPerCell ? raw.cookiesPerCell : null,
+    cellH: raw.cellHProduct,
     sideClearance: raw.sideClearance,
     endClearance: raw.endClearance,
     cradleClearance: raw.cradleClearance,

@@ -6,10 +6,20 @@ spec ("Gotchas") before touching either:
 
 1. Cells are cut LAST, after body -> flange -> chamfer -> lip are unioned.
    Cutting earlier can leave boolean slivers that cap or hole the openings.
-2. The drafted body's *bottom* corner radius is derived as ``corner_r - D``
-   so the drafted *top* lands exactly on ``corner_r`` (what the flange
-   references). A fixed bottom radius would make the top radius grow with
-   draft and the flange would miss the body at the corners.
+2. The drafted body's *bottom* corner radius is derived as
+   ``corner_r - draft_offset`` so the drafted *top* lands exactly on
+   ``corner_r`` (what the flange references). A fixed bottom radius would
+   make the top radius grow with draft and the flange would miss the body
+   at the corners.
+3. The base taper is bounded: it only tapers over ``draft_h`` (never
+   insetting the base past ``wall - 0.5``mm), then goes vertical up to the
+   rim. An unbounded full-height taper would inset the base past the wall
+   thickness on tall cells, undercutting them. Short trays (where the
+   unbounded taper never reaches the wall limit) are unaffected — ``draft_h``
+   lands exactly on ``H`` and the body is a single loft, as before.
+4. The trough cut is extended a few mm above the rim so the boolean cut
+   passes cleanly through the flange/lip instead of leaving a coincident
+   face (and a boolean sliver) exactly at z=H.
 """
 
 from __future__ import annotations
@@ -42,17 +52,29 @@ def trough_neg(
     Half-round bottom when ``cradle_r == cell_wid / 2``; otherwise a flat
     bottom of width ``cell_wid - 2*cradle_r`` with ``cradle_r`` fillets at
     the bottom corners, collapsing continuously to the half-round at the cap.
+
+    The upper box is extended a few mm above the rim (``RIM_OVERCUT``) so the
+    cut passes cleanly through the flange/lip instead of leaving a coincident
+    face (a boolean sliver) exactly at z=H. The plan-view corner fillet
+    (``cell_fillet``, spanning the full straight-wall height including the
+    overcut) is applied by edge-filleting the assembled union rather than
+    pre-rounding each sub-solid's profile: pre-rounding looks equivalent but
+    removes the vertical corner edges the fillet operation also relies on to
+    resolve the box/cylinder tangency where the flat bottom (when
+    ``cradle_r < cell_wid/2``) meets the corner-rounding cylinders, which
+    otherwise silently leaves a non-manifold defect there.
     """
     w = cell_wid
     r = min(cradle_r, w / 2.0)
     negs = []
 
-    # Full-width upper box, above the fillet centers.
-    if cell_h - r > 1e-6:
+    RIM_OVERCUT = 5.0
+    upper_h = (cell_h - r) + RIM_OVERCUT
+    if upper_h > 1e-6:
         negs.append(
             cq.Workplane("XY")
             .workplane(offset=floor + r)
-            .box(cell_len, w, cell_h - r, centered=(True, True, False))
+            .box(cell_len, w, upper_h, centered=(True, True, False))
             .translate((cx, cy, 0))
         )
 
@@ -80,10 +102,9 @@ def trough_neg(
         neg = neg.union(e)
 
     if fil > 0:
-        try:
-            neg = neg.edges("|Z").fillet(fil)  # fillet cell plan-view corners
-        except Exception:
-            pass
+        rr = min(fil, cell_len / 2 - 0.1, w / 2 - 0.1)
+        if rr > 0:
+            neg = neg.edges("|Z").fillet(rr)  # fillet cell plan-view corners
 
     return neg
 
@@ -102,8 +123,19 @@ def build_tray(params: TrayParams) -> cq.Workplane:
     top_W = p.top_W
     o_L, o_W, o_r = p.outer_L, p.outer_W, p.outer_r
 
-    # Drafted body: bottom radius derived so the TOP lands exactly on corner_r.
-    body = rrect(p.bottom_L, p.bottom_W, p.bottom_corner_r).extrude(H, taper=-p.draft_deg)
+    # Drafted body: bounded base taper (bottom radius derived so the top
+    # lands exactly on corner_r), then straight vertical walls up to the
+    # rim once the taper completes at draft_h. Short trays where the
+    # unbounded taper never reaches the wall limit get draft_h == H, i.e. a
+    # single loft over the full height (unchanged from before).
+    if p.draft_offset <= 1e-9:
+        body = rrect(p.top_L, p.top_W, p.corner_r).extrude(H)
+    elif p.draft_h >= H - 1e-6:
+        body = rrect(p.bottom_L, p.bottom_W, p.bottom_corner_r).extrude(H, taper=-p.draft_deg)
+    else:
+        tapered = rrect(p.bottom_L, p.bottom_W, p.bottom_corner_r).extrude(p.draft_h, taper=-p.draft_deg)
+        straight = rrect(p.top_L, p.top_W, p.corner_r).extrude(H - p.draft_h).translate((0, 0, p.draft_h))
+        body = tapered.union(straight)
 
     # Flange strip flush with rim (outer flange beyond body).
     body = body.union(

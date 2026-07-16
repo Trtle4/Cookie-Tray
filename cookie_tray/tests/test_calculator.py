@@ -73,16 +73,34 @@ def test_cradle_clearance_shrinks_cradle_r():
     assert params.cradle_r == pytest.approx(20.0 - 5.0)
 
 
-def test_default_depth_used_when_larger_than_cradle_r():
+def test_cell_h_used_directly_regardless_of_cookie_size():
     spec = ProductSpec(
         cookie_diameter=40.0,
         cookie_thickness=10.0,
         qty_total=10,
         n_cells=2,
-        default_depth=28.0,
+        cell_h=35.0,
     )
     params = derive_params(spec)
-    assert params.cell_h == pytest.approx(28.0)
+    assert params.cell_h == pytest.approx(35.0)
+
+
+def test_cell_h_too_shallow_for_cradle_raises():
+    # cell_wid = 40 + 2*1.5 = 43 -> cradle_r defaults to 21.5; cell_h=10 is too shallow.
+    spec = ProductSpec(
+        cookie_diameter=40.0,
+        cookie_thickness=10.0,
+        qty_total=10,
+        n_cells=2,
+        cell_h=10.0,
+    )
+    with pytest.raises(ValueError, match="cell_h"):
+        derive_params(spec)
+
+
+def test_cell_h_must_be_positive():
+    with pytest.raises(ValueError, match="cell_h"):
+        ProductSpec(cookie_diameter=45.0, cookie_thickness=12.0, qty_total=24, n_cells=3, cell_h=0.0)
 
 
 def test_qty_total_must_be_positive():

@@ -15,8 +15,6 @@ from typing import Optional
 
 from .params import TrayParams
 
-DEFAULT_CELL_DEPTH = 28.0
-
 
 @dataclass
 class ProductSpec:
@@ -28,7 +26,7 @@ class ProductSpec:
     side_clearance: float = 1.5
     end_clearance: float = 3.0
     cradle_clearance: float = 0.0
-    default_depth: float = DEFAULT_CELL_DEPTH
+    cell_h: float = 28.0  # explicit trough depth; independent of cookie size
 
     # Pass-through §3 inputs not derived from product dims.
     long_axis: str = "X"
@@ -51,6 +49,8 @@ class ProductSpec:
             raise ValueError(f"qty_total must be >= 1, got {self.qty_total}")
         if self.cookie_diameter <= 0 or self.cookie_thickness <= 0:
             raise ValueError("cookie_diameter and cookie_thickness must be > 0")
+        if self.cell_h <= 0:
+            raise ValueError(f"cell_h must be > 0, got {self.cell_h}")
 
 
 def derive_params(spec: ProductSpec) -> TrayParams:
@@ -58,7 +58,9 @@ def derive_params(spec: ProductSpec) -> TrayParams:
 
     Round-trip requirement (§5): the returned params must pass every §3
     guard. ``TrayParams.__post_init__`` validates on construction, so a bad
-    product spec surfaces as a ``ValueError`` right here.
+    product spec — including a ``cell_h`` too shallow for the cradle it
+    implies — surfaces as a ``ValueError`` right here rather than silently
+    growing the tray past what was asked for.
     """
     cell_wid = spec.cookie_diameter + 2 * spec.side_clearance
 
@@ -74,14 +76,13 @@ def derive_params(spec: ProductSpec) -> TrayParams:
         cookies_per_cell = ceil(spec.qty_total / n_cells)
 
     cell_len = cookies_per_cell * spec.cookie_thickness + spec.end_clearance
-    cell_h = max(spec.default_depth, cradle_r)
 
     return TrayParams(
         n_cells=n_cells,
         long_axis=spec.long_axis,
         cell_len=cell_len,
         cell_wid=cell_wid,
-        cell_h=cell_h,
+        cell_h=spec.cell_h,
         cradle_r=cradle_r,
         wall=spec.wall,
         floor=spec.floor,

@@ -9,13 +9,20 @@
  *
  * 1. Cut cells LAST (body -> flange -> chamfer -> lip -> then cut troughs).
  *    Cutting earlier can leave boolean slivers that cap or hole the openings.
- * 2. Body bottom corner radius = cornerR - D, so the drafted TOP lands
- *    exactly on cornerR (what the flange references).
+ * 2. Body bottom corner radius = cornerR - draftOffset, so the drafted TOP
+ *    lands exactly on cornerR (what the flange references).
  * 3. Draft opens toward the rim (top wider than bottom) — the loft goes from
  *    the smaller bottom rectangle to the larger top rectangle.
  * 4. Chamfer height is tied to stripW (d = stripW + 1) so it spans the
  *    overhang at 45 degrees.
  * 5. Internal cell walls stay vertical — only the outer body lofts/drafts.
+ * 6. The base taper is bounded: it only tapers over draftH (never insetting
+ *    the base past wall - 0.5mm), then goes vertical up to the rim. An
+ *    unbounded full-height taper would inset the base past the wall
+ *    thickness on tall cells, undercutting them.
+ * 7. The trough cut is extended a few mm above the rim so the cut passes
+ *    cleanly through the flange/lip instead of leaving a coincident face
+ *    (a boolean sliver) exactly at z=H.
  */
 
 import { drawRoundedRectangle, drawCircle } from "replicad";
@@ -31,27 +38,36 @@ function rrectSketch(L, W, r, z = 0, plane = "XY") {
  * bottom when `cradleR === cellWid / 2`; otherwise a flat bottom of width
  * `cellWid - 2*cradleR` with `cradleR` fillets at the bottom corners,
  * collapsing continuously to the half-round at the cap.
+ *
+ * The upper box is extended a few mm above the rim (`RIM_OVERCUT`) so the
+ * cut passes cleanly through the flange/lip instead of leaving a coincident
+ * face (a boolean sliver) exactly at z=H. The plan-view corner fillet
+ * (`fil`, spanning the full straight-wall height including the overcut) is
+ * applied by edge-filleting the assembled union rather than pre-rounding
+ * each sub-solid's profile: pre-rounding looks equivalent but removes the
+ * vertical corner edges the fillet operation also relies on to resolve the
+ * box/cylinder tangency where the flat bottom (when `cradleR < cellWid/2`)
+ * meets the corner-rounding cylinders, which otherwise silently leaves a
+ * non-manifold defect there.
  */
 function troughNeg(cx, cy, floor, cellLen, cellWid, cellH, cradleR, fil) {
   const w = cellWid;
   const r = Math.min(cradleR, w / 2);
   let neg = null;
 
-  // Full-width upper box, above the fillet centers. Pre-rounded with
-  // cell_fillet (plan-view corner rounding) — no edge-finder needed.
-  if (cellH - r > 1e-6) {
-    const upperFil = Math.max(0, Math.min(fil, Math.min(cellLen, w) / 2 - 0.01));
-    neg = drawRoundedRectangle(cellLen, w, upperFil)
+  const RIM_OVERCUT = 5.0;
+  const upperH = cellH - r + RIM_OVERCUT;
+  if (upperH > 1e-6) {
+    neg = drawRoundedRectangle(cellLen, w, 0)
       .sketchOnPlane("XY", floor + r)
-      .extrude(cellH - r)
+      .extrude(upperH)
       .translate([cx, cy, 0]);
   }
 
   // Central flat-bottom box (zero width -> skipped when r === w/2).
   const flatW = w - 2 * r;
   if (flatW > 1e-6) {
-    const flatFil = Math.max(0, Math.min(fil, flatW / 2 - 0.01));
-    const b = drawRoundedRectangle(cellLen, flatW, flatFil)
+    const b = drawRoundedRectangle(cellLen, flatW, 0)
       .sketchOnPlane("XY", floor)
       .extrude(r)
       .translate([cx, cy, 0]);
@@ -69,6 +85,13 @@ function troughNeg(cx, cy, floor, cellLen, cellWid, cellH, cradleR, fil) {
     neg = neg ? neg.fuse(cyl) : cyl;
   }
 
+  if (fil > 0) {
+    const rr = Math.min(fil, cellLen / 2 - 0.1, w / 2 - 0.1);
+    if (rr > 0) {
+      neg = neg.fillet(rr, (e) => e.inDirection([0, 0, 1])); // fillet cell plan-view corners
+    }
+  }
+
   return neg;
 }
 
@@ -81,17 +104,38 @@ export function buildTray(p) {
   const topL = p.cellLen + 2 * p.wall;
   const topW = p.nCells * p.cellWid + (p.nCells + 1) * p.wall;
   const H = p.floor + p.cellH;
-  const D = H * Math.tan((p.draftDeg * Math.PI) / 180);
+  const draftRad = (p.draftDeg * Math.PI) / 180;
+  // Bounded base taper offset: never exceeds wall - 0.5mm, regardless of
+  // cell height (an unbounded H*tan(draftDeg) would inset the base past the
+  // wall thickness on tall cells, undercutting them).
+  const dUnbounded = p.draftDeg > 0 ? H * Math.tan(draftRad) : 0;
+  const baseOffset = Math.max(0, Math.min(dUnbounded, p.wall - 0.5));
+  const draftH = p.draftDeg > 0 && baseOffset > 0 ? baseOffset / Math.tan(draftRad) : 0;
   const oL = topL + 2 * p.stripW;
   const oW = topW + 2 * p.stripW;
   const oR = p.cornerR + p.stripW;
   const lipT = 3 * p.nozzle;
 
-  // Drafted body (narrow bottom -> wide top); bottom radius derived so the
-  // top lands exactly on cornerR.
-  const bottom = rrectSketch(topL - 2 * D, topW - 2 * D, p.cornerR - D, 0);
-  const top = rrectSketch(topL, topW, p.cornerR, H);
-  let part = bottom.loftWith(top);
+  // Drafted body: bounded base taper (bottom radius derived so the top
+  // lands exactly on cornerR), then straight vertical walls up to the rim
+  // once the taper completes at draftH. Short trays where the unbounded
+  // taper never reaches the wall limit get draftH === H, i.e. a single loft
+  // over the full height (unchanged from before).
+  let part;
+  if (baseOffset <= 1e-9) {
+    part = rrectSketch(topL, topW, p.cornerR, 0).extrude(H);
+  } else if (draftH >= H - 1e-6) {
+    const bottom = rrectSketch(topL - 2 * baseOffset, topW - 2 * baseOffset, p.cornerR - baseOffset, 0);
+    const top = rrectSketch(topL, topW, p.cornerR, H);
+    part = bottom.loftWith(top);
+  } else {
+    const bottom = rrectSketch(topL - 2 * baseOffset, topW - 2 * baseOffset, p.cornerR - baseOffset, 0);
+    const loftTop = rrectSketch(topL, topW, p.cornerR, draftH);
+    const tapered = bottom.loftWith(loftTop);
+    const straightBase = rrectSketch(topL, topW, p.cornerR, draftH);
+    const straight = straightBase.extrude(H - draftH);
+    part = tapered.fuse(straight);
+  }
 
   // Flange strip flush with rim.
   part = part.fuse(rrectSketch(oL, oW, oR, H - p.flangeT).extrude(p.flangeT));

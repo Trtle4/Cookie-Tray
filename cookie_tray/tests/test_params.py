@@ -1,3 +1,5 @@
+import math
+
 import pytest
 
 from cookie_tray.params import TrayParams
@@ -24,10 +26,42 @@ def test_guard2_cell_h_less_than_cradle_r_raises():
         TrayParams(cell_wid=48.0, cell_h=5.0, cradle_r=24.0)
 
 
-def test_guard3_corner_r_not_exceeding_draft_offset_raises():
-    # Large draft_deg / cell_h pushes D above a tiny corner_r.
+def test_guard3_corner_r_not_exceeding_base_offset_raises():
+    # draft_offset caps at wall - 0.5 = 2.5 with the default wall (3.0), so a
+    # tiny corner_r triggers this regardless of draft_deg/cell_h.
     with pytest.raises(ValueError, match="corner_r"):
-        TrayParams(corner_r=0.5, draft_deg=45.0, cell_h=50.0, floor=5.0)
+        TrayParams(corner_r=0.1)
+
+
+def test_draft_offset_bounded_by_wall_regardless_of_cell_height():
+    # Tall cells must not push the base taper past wall - 0.5 (issue: base
+    # undercutting cells on tall trays).
+    p = TrayParams(cell_h=80.0)
+    unbounded = p.H * math.tan(math.radians(p.draft_deg))
+    assert unbounded > p.wall - 0.5  # sanity: this case would have been capped
+    assert p.draft_offset == pytest.approx(p.wall - 0.5)
+
+
+def test_tall_cell_height_is_unrestricted():
+    # Previously tall cells could push draft_offset (D) above corner_r and
+    # raise, or undercut the base past the wall. Neither happens now.
+    p = TrayParams(cell_h=80.0)
+    assert p.corner_r > p.draft_offset
+    assert p.bottom_corner_r > 0
+
+
+def test_draft_h_equals_H_for_genuinely_short_trays():
+    # Short enough that the unbounded taper never reaches the wall cap, so
+    # the taper spans the full height (single loft, unchanged from before).
+    p = TrayParams(cell_h=10.0, cell_wid=15.0)
+    unbounded = p.H * math.tan(math.radians(p.draft_deg))
+    assert unbounded < p.wall - 0.5  # sanity: not capped
+    assert p.draft_h == pytest.approx(p.H)
+
+
+def test_draft_h_less_than_H_for_tall_trays():
+    p = TrayParams(cell_h=80.0)
+    assert p.draft_h < p.H
 
 
 def test_guard4_strip_w_not_exceeding_lip_t_raises():

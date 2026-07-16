@@ -17,7 +17,7 @@ export function deriveParamsFromProduct(spec) {
     sideClearance = 1.5,
     endClearance = 3.0,
     cradleClearance = 0.0,
-    defaultDepth = null, // UI field; default ~ cellWid * 0.6 when unset
+    cellH, // explicit trough depth (mm); independent of cookie size, required
     longAxis = "X",
     wall = 3.0,
     floor = 2.5,
@@ -39,6 +39,9 @@ export function deriveParamsFromProduct(spec) {
   if (!(cookieDiameter > 0) || !(cookieThickness > 0)) {
     throw new Error("cookieDiameter and cookieThickness must be > 0");
   }
+  if (!(cellH > 0)) {
+    throw new Error(`cellH must be > 0, got ${cellH}`);
+  }
 
   const cellWid = cookieDiameter + 2 * sideClearance;
 
@@ -56,8 +59,6 @@ export function deriveParamsFromProduct(spec) {
   }
 
   const cellLen = finalCookiesPerCell * cookieThickness + endClearance;
-  const resolvedDefaultDepth = defaultDepth === null ? cellWid * 0.6 : defaultDepth;
-  const cellH = Math.max(resolvedDefaultDepth, cradleR);
 
   const rawParams = {
     nCells: finalNCells,

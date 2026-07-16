@@ -71,3 +71,30 @@ def test_bounding_box_matches_derived_footprint(tmp_path):
     expected = sorted([p.outer_L, p.outer_W])
     assert extents[0] == pytest.approx(expected[0], rel=1e-2)
     assert extents[1] == pytest.approx(expected[1], rel=1e-2)
+
+
+def test_build_tall_cell_no_undercut(tmp_path):
+    # Regression test: an unbounded full-height draft used to inset the base
+    # past the wall thickness on tall cells, undercutting them. draft_offset
+    # is now capped at wall - 0.5, so the base never insets past that.
+    p = TrayParams(n_cells=2, cell_h=80.0)
+    assert p.draft_offset == pytest.approx(p.wall - 0.5)
+    mesh = _mesh_for(p, "tall_cell", tmp_path)
+    _assert_watertight_genus0(mesh)
+
+    # The solid's footprint near the base (z close to 0) should match the
+    # bounded bottom_L/bottom_W, not an unbounded (over-inset) footprint.
+    near_base = mesh.vertices[mesh.vertices[:, 2] < 0.5]
+    assert len(near_base) > 0
+    base_extent_x = near_base[:, 0].max() - near_base[:, 0].min()
+    base_extent_y = near_base[:, 1].max() - near_base[:, 1].min()
+    expected = sorted([p.bottom_L, p.bottom_W])
+    actual = sorted([base_extent_x, base_extent_y])
+    assert actual[0] == pytest.approx(expected[0], rel=1e-2)
+    assert actual[1] == pytest.approx(expected[1], rel=1e-2)
+
+
+def test_build_tall_cell_cell_corner_fillet_present(tmp_path):
+    p = TrayParams(n_cells=1, cell_h=80.0, cell_fillet=2.0)
+    mesh = _mesh_for(p, "tall_cell_fillet", tmp_path)
+    _assert_watertight_genus0(mesh)
