@@ -18,15 +18,26 @@ from .params import TrayParams
 
 @dataclass
 class ProductSpec:
-    cookie_diameter: float
-    cookie_thickness: float
     qty_total: int
+    product_type: str = "round"  # "round" | "rectangle"
+
+    # ROUND fields (pitch along channel = cookie_thickness; vertical extent = diameter)
+    cookie_diameter: Optional[float] = None
+    cookie_thickness: Optional[float] = None
+
+    # RECTANGLE fields (product_thickness is the pack pitch along the channel)
+    product_width: Optional[float] = None  # across cell (Y)
+    product_height: Optional[float] = None  # vertical (Z)
+    product_thickness: Optional[float] = None  # along channel (X)
+    edge_r_top: float = 0.0
+    edge_r_bot: float = 0.0
+
     n_cells: Optional[int] = None
     cookies_per_cell: Optional[int] = None
     side_clearance: float = 1.5
     end_clearance: float = 3.0
     cradle_clearance: float = 0.0
-    cell_h: float = 28.0  # explicit trough depth; independent of cookie size
+    cell_h: float = 28.0  # explicit trough depth; independent of product size
 
     # Pass-through §3 inputs not derived from product dims.
     long_axis: str = "X"
@@ -43,14 +54,26 @@ class ProductSpec:
     nozzle: float = 0.42
 
     def __post_init__(self) -> None:
+        if self.product_type not in ("round", "rectangle"):
+            raise ValueError(f'product_type must be "round" or "rectangle", got {self.product_type!r}')
         if (self.n_cells is None) == (self.cookies_per_cell is None):
             raise ValueError(
                 "Supply exactly one of n_cells or cookies_per_cell, not both/neither."
             )
         if self.qty_total < 1:
             raise ValueError(f"qty_total must be >= 1, got {self.qty_total}")
-        if self.cookie_diameter <= 0 or self.cookie_thickness <= 0:
-            raise ValueError("cookie_diameter and cookie_thickness must be > 0")
+        if self.product_type == "round":
+            if self.cookie_diameter is None or self.cookie_thickness is None:
+                raise ValueError("round product_type requires cookie_diameter and cookie_thickness")
+            if self.cookie_diameter <= 0 or self.cookie_thickness <= 0:
+                raise ValueError("cookie_diameter and cookie_thickness must be > 0")
+        else:
+            if self.product_width is None or self.product_height is None or self.product_thickness is None:
+                raise ValueError(
+                    "rectangle product_type requires product_width, product_height, and product_thickness"
+                )
+            if self.product_width <= 0 or self.product_height <= 0 or self.product_thickness <= 0:
+                raise ValueError("product_width, product_height, and product_thickness must be > 0")
         if self.cell_h <= 0:
             raise ValueError(f"cell_h must be > 0, got {self.cell_h}")
 
@@ -64,10 +87,20 @@ def derive_params(spec: ProductSpec) -> TrayParams:
     implies — surfaces as a ``ValueError`` right here rather than silently
     growing the tray past what was asked for.
     """
-    cell_wid = spec.cookie_diameter + 2 * spec.side_clearance
+    if spec.product_type == "rectangle":
+        cell_wid = spec.product_width + 2 * spec.side_clearance
+        pack_pitch = spec.product_thickness
+    else:
+        cell_wid = spec.cookie_diameter + 2 * spec.side_clearance
+        pack_pitch = spec.cookie_thickness
 
     max_cradle_r = cell_wid / 2.0
-    cradle_r = cell_wid / 2.0 - spec.cradle_clearance
+    if spec.product_type == "rectangle":
+        # Rectangular products have no natural "radius" to hug; suggest a
+        # modest fixed rounded-bottom radius instead of cell_wid/2.
+        cradle_r = 5.0 - spec.cradle_clearance
+    else:
+        cradle_r = cell_wid / 2.0 - spec.cradle_clearance
     cradle_r = min(max(cradle_r, 1e-6), max_cradle_r)  # clamp to (0, cell_wid/2]
 
     if spec.cookies_per_cell is not None:
@@ -77,7 +110,7 @@ def derive_params(spec: ProductSpec) -> TrayParams:
         n_cells = spec.n_cells
         cookies_per_cell = ceil(spec.qty_total / n_cells)
 
-    cell_len = cookies_per_cell * spec.cookie_thickness + spec.end_clearance
+    cell_len = cookies_per_cell * pack_pitch + spec.end_clearance
 
     return TrayParams(
         n_cells=n_cells,

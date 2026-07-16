@@ -18,6 +18,12 @@ export class Viewer {
 
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.renderer.localClippingEnabled = true;
+
+    // Cross-section clipping state. The plane is applied (or not) to both
+    // the tray mesh material and every product-fill material.
+    this.clipPlane = new THREE.Plane(new THREE.Vector3(-1, 0, 0), 0);
+    this.clippingEnabled = false;
 
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.target.set(0, 0, 0);
@@ -89,6 +95,7 @@ export class Viewer {
     }
 
     this._frame(geometry);
+    this._applyClipping();
   }
 
   _frame(geometry) {
@@ -110,6 +117,118 @@ export class Viewer {
       this.fillGroup.remove(child);
     }
     if (group) this.fillGroup.add(group);
+    this._applyClipping();
+  }
+
+  // ---- Camera view buttons ----
+
+  /** Union bounding box of everything currently displayed (tray + fill), in world space.
+   * Traverses recursively — the fill overlay is a Group of Meshes nested one
+   * level under fillGroup, not direct children. */
+  _combinedBoundingBox() {
+    this.scene.updateMatrixWorld(true);
+    const box = new THREE.Box3();
+    let has = false;
+    for (const group of [this.meshGroup, this.fillGroup]) {
+      group.traverse((child) => {
+        if (!child.geometry) return;
+        child.geometry.computeBoundingBox();
+        if (!child.geometry.boundingBox) return;
+        const b = child.geometry.boundingBox.clone();
+        b.applyMatrix4(child.matrixWorld);
+        if (!has) {
+          box.copy(b);
+          has = true;
+        } else {
+          box.union(b);
+        }
+      });
+    }
+    return has ? box : null;
+  }
+
+  /** Snap the camera to a named view (top/bottom/front/side/iso), re-fit to
+   * the current model bounds. Orbit controls stay interactive afterward. */
+  setCameraView(view) {
+    const box = this._combinedBoundingBox();
+    if (!box) return;
+    const sphere = new THREE.Sphere();
+    box.getBoundingSphere(sphere);
+    if (!isFinite(sphere.radius) || sphere.radius === 0) return;
+
+    const dist = sphere.radius * 2.6;
+    let dir, up;
+    switch (view) {
+      case "top":
+        dir = new THREE.Vector3(0, 0, 1);
+        up = new THREE.Vector3(0, 1, 0);
+        break;
+      case "bottom":
+        dir = new THREE.Vector3(0, 0, -1);
+        up = new THREE.Vector3(0, 1, 0);
+        break;
+      case "front":
+        dir = new THREE.Vector3(0, -1, 0);
+        up = new THREE.Vector3(0, 0, 1);
+        break;
+      case "side":
+        dir = new THREE.Vector3(1, 0, 0);
+        up = new THREE.Vector3(0, 0, 1);
+        break;
+      case "iso":
+      default:
+        dir = new THREE.Vector3(1, -1.1, 0.85).normalize();
+        up = new THREE.Vector3(0, 0, 1);
+        break;
+    }
+
+    this.camera.up.copy(up);
+    this.camera.position.copy(sphere.center).addScaledVector(dir, dist);
+    this.controls.target.copy(sphere.center);
+    this.camera.near = Math.max(dist / 200, 0.1);
+    this.camera.far = dist * 20;
+    this.camera.updateProjectionMatrix();
+    this.controls.update();
+  }
+
+  // ---- Cross-section ----
+
+  /** Enable/disable the clipping plane on both tray and product materials. */
+  setSectionEnabled(enabled) {
+    this.clippingEnabled = enabled;
+    this._applyClipping();
+  }
+
+  /** Position the clipping plane: `axis` is "X"/"Y"/"Z" (plane normal), and
+   * `fraction` (0..1) is the cut position across the current model bounds
+   * along that axis. Keeps the low-coordinate half visible. */
+  setSectionPlane(axis, fraction) {
+    const box = this._combinedBoundingBox();
+    if (!box) return;
+    const axisKey = axis === "Y" ? "y" : axis === "Z" ? "z" : "x";
+    const min = box.min[axisKey];
+    const max = box.max[axisKey];
+    const pos = min + (max - min) * fraction;
+
+    const normal = new THREE.Vector3(
+      axisKey === "x" ? -1 : 0,
+      axisKey === "y" ? -1 : 0,
+      axisKey === "z" ? -1 : 0
+    );
+    this.clipPlane.normal.copy(normal);
+    this.clipPlane.constant = pos;
+    this._applyClipping();
+  }
+
+  _applyClipping() {
+    const planes = this.clippingEnabled ? [this.clipPlane] : [];
+    for (const group of [this.meshGroup, this.fillGroup]) {
+      group.traverse((child) => {
+        if (!child.material) return;
+        child.material.clippingPlanes = planes;
+        if (this.clippingEnabled) child.material.side = THREE.DoubleSide;
+      });
+    }
   }
 
   dispose() {

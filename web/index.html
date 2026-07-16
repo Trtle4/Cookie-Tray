@@ -25,8 +25,23 @@
           <section id="product-section">
             <h2>Product</h2>
             <form id="product-form">
-              <label>Cookie diameter (mm)<input type="number" name="cookieDiameter" value="45" step="0.1" /></label>
-              <label>Cookie thickness (mm)<input type="number" name="cookieThickness" value="12" step="0.1" /></label>
+              <label>Product type
+                <select name="productType">
+                  <option value="round">Round</option>
+                  <option value="rectangle">Rectangle</option>
+                </select>
+              </label>
+              <div id="product-round-fields">
+                <label>Cookie diameter (mm)<input type="number" name="cookieDiameter" value="45" step="0.1" /></label>
+                <label>Cookie thickness (mm)<input type="number" name="cookieThickness" value="12" step="0.1" /></label>
+              </div>
+              <div id="product-rect-fields" style="display:none">
+                <label>Product width, across cell (mm)<input type="number" name="productWidth" value="45" step="0.1" /></label>
+                <label>Product height, vertical (mm)<input type="number" name="productHeight" value="20" step="0.1" /></label>
+                <label>Product thickness, along channel (mm)<input type="number" name="productThickness" value="12" step="0.1" /></label>
+                <label>Top edge radius (mm)<input type="number" name="edgeRTop" value="2" min="0" step="0.1" /></label>
+                <label>Bottom edge radius (mm)<input type="number" name="edgeRBot" value="2" min="0" step="0.1" /></label>
+              </div>
               <label>Total quantity<input type="number" name="qtyTotal" value="24" min="1" step="1" /></label>
               <label>Distribute by
                 <select name="distributeBy">
@@ -76,6 +91,29 @@
           <div id="derived-summary"></div>
         </aside>
         <section id="viewport">
+          <div id="viewport-toolbar">
+            <div id="camera-buttons" class="toolbar-group">
+              <button type="button" class="cam-btn" data-view="iso">Iso</button>
+              <button type="button" class="cam-btn" data-view="top">Top</button>
+              <button type="button" class="cam-btn" data-view="bottom">Bottom</button>
+              <button type="button" class="cam-btn" data-view="front">Front</button>
+              <button type="button" class="cam-btn" data-view="side">Side</button>
+            </div>
+            <div id="section-controls" class="toolbar-group">
+              <label id="section-toggle-label">
+                <input type="checkbox" id="section-toggle" />
+                Cross-section
+              </label>
+              <label class="toolbar-inline">Axis
+                <select id="section-axis">
+                  <option value="X" selected>X</option>
+                  <option value="Y">Y</option>
+                  <option value="Z">Z</option>
+                </select>
+              </label>
+              <input type="range" id="section-slider" min="0" max="1" step="0.01" value="0.5" disabled />
+            </div>
+          </div>
           <canvas id="three-canvas"></canvas>
           <div id="status-overlay">Loading OpenCASCADE...</div>
         </section>

@@ -28,18 +28,31 @@ npm run dev
 
 Open the printed local URL. The left panel has two always-visible sections:
 
-- **Product** — cookie diameter/thickness/quantity and either a cell count
-  or cookies-per-cell. This drives the product-fill preview and *suggests*
-  values for the Tray section's cell width/length/cradle radius/cell count.
+- **Product** — a product type toggle (**Round** or **Rectangle**), plus
+  quantity and either a cell count or cookies-per-cell. Round takes
+  diameter/thickness; Rectangle takes width/height/thickness and independent
+  top/bottom edge radii (visualization only). This drives the product-fill
+  preview and *suggests* values for the Tray section's cell width/height/
+  cradle radius/cell count (Rectangle suggests a 5mm cradle radius, since a
+  rectangular product has no natural radius to hug).
 - **Tray** — every tray parameter (§3 of the spec), directly editable.
   Fields currently populated by a Product suggestion are highlighted; typing
   into one makes it yours from then on (the Product section stops
   overwriting it). Divider and cell pitch are two views of the same value —
   editing either updates the other.
 
-Toggle **Show product fill** to overlay the packed cookies at true size —
+Toggle **Show product fill** to overlay the packed product at true size —
 useful for sanity-checking that a hand-tuned Tray field still fits the
-product spec (shrink a dimension and watch the discs poke through the wall).
+product spec (shrink a dimension and watch the shapes poke through the
+wall). Every product rests with its lowest point exactly at the cell floor,
+regardless of the cradle radius.
+
+The viewport toolbar above the 3D canvas has camera view buttons (**Iso**,
+**Top**, **Bottom**, **Front**, **Side** — each re-fits to the current
+model, orbit stays interactive afterward) and a **Cross-section** toggle
+with an axis selector and position slider. The cross-section clips both the
+tray and the product fill together, so you can see how the product nests in
+the cradle.
 
 ## Build
 

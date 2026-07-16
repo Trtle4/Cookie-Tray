@@ -106,3 +106,90 @@ def test_cell_h_must_be_positive():
 def test_qty_total_must_be_positive():
     with pytest.raises(ValueError, match="qty_total"):
         ProductSpec(cookie_diameter=45.0, cookie_thickness=12.0, qty_total=0, n_cells=3)
+
+
+def test_rectangle_requires_dimensions():
+    with pytest.raises(ValueError, match="rectangle product_type requires"):
+        ProductSpec(product_type="rectangle", qty_total=10, n_cells=2)
+
+
+def test_round_requires_diameter_and_thickness():
+    with pytest.raises(ValueError, match="round product_type requires"):
+        ProductSpec(product_type="round", qty_total=10, n_cells=2)
+
+
+def test_invalid_product_type_rejected():
+    with pytest.raises(ValueError, match="product_type"):
+        ProductSpec(product_type="square", qty_total=10, n_cells=2, cookie_diameter=10, cookie_thickness=5)
+
+
+def test_rectangle_cell_wid_uses_product_width():
+    spec = ProductSpec(
+        product_type="rectangle",
+        qty_total=10,
+        n_cells=2,
+        product_width=40.0,
+        product_height=20.0,
+        product_thickness=10.0,
+        side_clearance=2.0,
+    )
+    params = derive_params(spec)
+    assert params.cell_wid == pytest.approx(44.0)
+
+
+def test_rectangle_cell_len_uses_product_thickness_as_pack_pitch():
+    spec = ProductSpec(
+        product_type="rectangle",
+        qty_total=10,
+        n_cells=2,
+        product_width=40.0,
+        product_height=20.0,
+        product_thickness=10.0,
+        end_clearance=3.0,
+    )
+    params = derive_params(spec)
+    cookies_per_cell = math.ceil(spec.qty_total / spec.n_cells)
+    assert params.cell_len == pytest.approx(cookies_per_cell * 10.0 + 3.0)
+
+
+def test_rectangle_cradle_r_defaults_to_5mm():
+    spec = ProductSpec(
+        product_type="rectangle",
+        qty_total=10,
+        n_cells=2,
+        product_width=40.0,
+        product_height=20.0,
+        product_thickness=10.0,
+        side_clearance=0.0,
+    )
+    params = derive_params(spec)
+    assert params.cradle_r == pytest.approx(5.0)
+
+
+def test_rectangle_cradle_r_clamped_to_cell_wid_half_when_narrow():
+    spec = ProductSpec(
+        product_type="rectangle",
+        qty_total=10,
+        n_cells=2,
+        product_width=6.0,
+        product_height=20.0,
+        product_thickness=10.0,
+        side_clearance=0.0,
+    )
+    params = derive_params(spec)
+    assert params.cradle_r == pytest.approx(3.0)  # cell_wid/2 = 3.0 < 5.0mm suggestion
+
+
+def test_rectangle_round_trip_builds_valid_tray():
+    spec = ProductSpec(
+        product_type="rectangle",
+        qty_total=24,
+        n_cells=3,
+        product_width=40.0,
+        product_height=20.0,
+        product_thickness=12.0,
+        cell_h=25.0,
+    )
+    params = derive_params(spec)
+    part = build_tray(params)
+    assert part.val().isValid()

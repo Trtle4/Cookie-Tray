@@ -40,6 +40,13 @@ part = build_tray(params)
 export(part, "tray", out_dir="out")
 ```
 
+`ProductSpec` also accepts `product_type="rectangle"` with `product_width` /
+`product_height` / `product_thickness` in place of `cookie_diameter` /
+`cookie_thickness` — the tray-shaping math (cell width/length, cradle
+radius) picks the right dimension either way. `edge_r_top` / `edge_r_bot`
+are for the web app's product visualization only; the exported tray solid
+is unaffected by product shape.
+
 Both paths produce the same `TrayParams` object and feed the same
 `build_tray` — one geometry path, two front doors.
 

@@ -22,6 +22,13 @@ const els = {
   distributeBy: document.querySelector('select[name="distributeBy"]'),
   nCellsField: document.getElementById("product-ncells-field"),
   perCellField: document.getElementById("product-percell-field"),
+  productType: document.querySelector('select[name="productType"]'),
+  roundFields: document.getElementById("product-round-fields"),
+  rectFields: document.getElementById("product-rect-fields"),
+  cameraButtons: document.querySelectorAll(".cam-btn"),
+  sectionToggle: document.getElementById("section-toggle"),
+  sectionAxis: document.getElementById("section-axis"),
+  sectionSlider: document.getElementById("section-slider"),
 };
 
 const viewer = new Viewer(els.canvas);
@@ -29,8 +36,9 @@ const viewer = new Viewer(els.canvas);
 // Tray fields the product section can suggest a value for. If the user has
 // edited one of these directly, their value wins — the product section
 // stops overwriting it until the page is reloaded.
-const SUGGESTABLE_FIELDS = ["nCells", "cellLen", "cellWid", "cradleR"];
+const SUGGESTABLE_FIELDS = ["nCells", "cellLen", "cellWid", "cellH", "cradleR"];
 const userTouched = new Set();
+let sectionAxisTouched = false;
 
 let lastValidParams = null; // §3 input-shaped params, ready for buildTray
 let lastFillSpec = null; // { cookiesPerCell, cookieDiameter, cookieThickness, endClearance } | null
@@ -55,6 +63,14 @@ els.distributeBy.addEventListener("change", () => {
   applyProductSuggestions();
 });
 
+// ---- Product section: round <-> rectangle field group toggle ----
+els.productType.addEventListener("change", () => {
+  const isRect = els.productType.value === "rectangle";
+  els.roundFields.style.display = isRect ? "none" : "";
+  els.rectFields.style.display = isRect ? "" : "none";
+  applyProductSuggestions();
+});
+
 els.productForm.addEventListener("input", applyProductSuggestions);
 
 // ---- Tray section: mark suggestable fields as user-owned once edited ----
@@ -74,6 +90,31 @@ els.trayForm.addEventListener("input", (event) => {
 });
 
 els.fillToggle.addEventListener("change", updateFillOverlay);
+
+// ---- Camera view buttons ----
+for (const btn of els.cameraButtons) {
+  btn.addEventListener("click", () => viewer.setCameraView(btn.dataset.view));
+}
+
+// ---- Cross-section controls ----
+function updateSectionPlane() {
+  viewer.setSectionPlane(els.sectionAxis.value, parseFloat(els.sectionSlider.value));
+}
+
+els.sectionToggle.addEventListener("change", () => {
+  const enabled = els.sectionToggle.checked;
+  viewer.setSectionEnabled(enabled);
+  els.sectionAxis.disabled = !enabled;
+  els.sectionSlider.disabled = !enabled;
+  if (enabled) updateSectionPlane();
+});
+
+els.sectionAxis.addEventListener("change", () => {
+  sectionAxisTouched = true;
+  updateSectionPlane();
+});
+
+els.sectionSlider.addEventListener("input", updateSectionPlane);
 
 function formToObject(form) {
   const data = new FormData(form);
@@ -116,8 +157,14 @@ function readProductInput() {
   const raw = formToObject(els.productForm);
   const byPerCell = els.distributeBy.value === "cookiesPerCell";
   return {
+    productType: raw.productType,
     cookieDiameter: raw.cookieDiameter,
     cookieThickness: raw.cookieThickness,
+    productWidth: raw.productWidth,
+    productHeight: raw.productHeight,
+    productThickness: raw.productThickness,
+    edgeRTop: raw.edgeRTop,
+    edgeRBot: raw.edgeRBot,
     qtyTotal: raw.qtyTotal,
     nCells: byPerCell ? null : raw.nCellsProduct,
     cookiesPerCell: byPerCell ? raw.cookiesPerCell : null,
@@ -170,6 +217,7 @@ function applyProductSuggestions() {
       nCells: String(suggestion.nCells),
       cellLen: suggestion.cellLen.toFixed(1),
       cellWid: suggestion.cellWid.toFixed(1),
+      cellH: suggestion.cellH.toFixed(1),
       cradleR: suggestion.cradleR.toFixed(1),
     };
     for (const field of SUGGESTABLE_FIELDS) {
@@ -179,9 +227,15 @@ function applyProductSuggestions() {
       el.classList.add("suggested");
     }
     lastFillSpec = {
+      productType: productInput.productType,
       cookiesPerCell: suggestion.cookiesPerCell,
       cookieDiameter: productInput.cookieDiameter,
       cookieThickness: productInput.cookieThickness,
+      productWidth: productInput.productWidth,
+      productHeight: productInput.productHeight,
+      productThickness: productInput.productThickness,
+      edgeRTop: productInput.edgeRTop,
+      edgeRBot: productInput.edgeRBot,
       endClearance: 3.0,
     };
   } else {
@@ -247,6 +301,10 @@ async function rebuild() {
   els.fillToggle.disabled = !lastFillSpec;
   if (!lastFillSpec) els.fillToggle.checked = false;
 
+  if (!sectionAxisTouched && els.sectionAxis.value !== lastValidParams.longAxis) {
+    els.sectionAxis.value = lastValidParams.longAxis;
+  }
+
   const token = ++buildToken;
   setStatus("Building...");
   els.downloadStl.disabled = true;
@@ -256,6 +314,7 @@ async function rebuild() {
     if (token !== buildToken) return; // a newer build superseded this one
     viewer.setShape({ mesh, edges });
     updateFillOverlay();
+    if (els.sectionToggle.checked) updateSectionPlane();
     els.downloadStl.disabled = false;
     els.downloadStep.disabled = false;
     setStatus("");

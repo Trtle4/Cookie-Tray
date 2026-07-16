@@ -17,8 +17,12 @@ import { makeTrayParams } from "./params.js";
  */
 export function suggestFromProduct(spec) {
   const {
+    productType = "round",
     cookieDiameter,
     cookieThickness,
+    productWidth,
+    productHeight,
+    productThickness,
     qtyTotal,
     nCells = null,
     cookiesPerCell = null,
@@ -33,14 +37,28 @@ export function suggestFromProduct(spec) {
   if (!(qtyTotal >= 1)) {
     throw new Error(`qtyTotal must be >= 1, got ${qtyTotal}`);
   }
-  if (!(cookieDiameter > 0) || !(cookieThickness > 0)) {
-    throw new Error("cookieDiameter and cookieThickness must be > 0");
+
+  let cellWid, packPitch, vertExtent;
+  if (productType === "rectangle") {
+    if (!(productWidth > 0) || !(productHeight > 0) || !(productThickness > 0)) {
+      throw new Error("productWidth, productHeight, and productThickness must be > 0");
+    }
+    cellWid = productWidth + 2 * sideClearance;
+    packPitch = productThickness;
+    vertExtent = productHeight;
+  } else {
+    if (!(cookieDiameter > 0) || !(cookieThickness > 0)) {
+      throw new Error("cookieDiameter and cookieThickness must be > 0");
+    }
+    cellWid = cookieDiameter + 2 * sideClearance;
+    packPitch = cookieThickness;
+    vertExtent = cookieDiameter;
   }
 
-  const cellWid = cookieDiameter + 2 * sideClearance;
-
   const maxCradleR = cellWid / 2;
-  let cradleR = cellWid / 2 - cradleClearance;
+  // Rectangular products have no natural "radius" to hug; suggest a modest
+  // fixed rounded-bottom radius instead of cellWid/2.
+  let cradleR = productType === "rectangle" ? 5.0 - cradleClearance : cellWid / 2 - cradleClearance;
   cradleR = Math.min(Math.max(cradleR, 0.5), maxCradleR);
 
   let finalNCells, finalCookiesPerCell;
@@ -52,9 +70,10 @@ export function suggestFromProduct(spec) {
     finalCookiesPerCell = Math.ceil(qtyTotal / nCells);
   }
 
-  const cellLen = finalCookiesPerCell * cookieThickness + endClearance;
+  const cellLen = finalCookiesPerCell * packPitch + endClearance;
+  const cellH = vertExtent + 4.0; // small margin above the product's vertical extent
 
-  return { nCells: finalNCells, cellLen, cellWid, cradleR, cookiesPerCell: finalCookiesPerCell };
+  return { nCells: finalNCells, cellLen, cellWid, cradleR, cellH, cookiesPerCell: finalCookiesPerCell };
 }
 
 /**
