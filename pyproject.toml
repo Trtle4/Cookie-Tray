@@ -1,0 +1,24 @@
+[project]
+name = "cookie-tray"
+version = "0.1.0"
+description = "Parametric 3D-printable cookie sizing tray generator (CadQuery, STEP + STL export)"
+requires-python = ">=3.9"
+dependencies = [
+    "cadquery>=2.8",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7.0",
+    "trimesh>=4.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["cookie_tray/tests"]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["cookie_tray*"]
