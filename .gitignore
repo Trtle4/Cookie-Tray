@@ -7,3 +7,8 @@ build/
 dist/
 *.step
 *.stl
+
+# web/ (Vite app)
+web/node_modules/
+web/dist/
+web/.vite/

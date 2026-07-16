@@ -58,3 +58,10 @@ cookie_tray/
 ```
 pytest
 ```
+
+## Web app
+
+`web/` is a shareable, zero-install browser app (replicad + three.js + Vite)
+that ports this same geometry to run client-side and exports STEP + STL from
+a link — no Python, no scripts. This Python module remains the geometry
+source of truth; see `web/README.md` for details.
