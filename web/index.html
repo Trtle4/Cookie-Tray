@@ -22,60 +22,55 @@
       </header>
       <main>
         <aside id="panel">
-          <div id="tabs">
-            <button class="tab-btn active" data-tab="direct">Direct</button>
-            <button class="tab-btn" data-tab="product">From Product</button>
-          </div>
+          <section id="product-section">
+            <h2>Product</h2>
+            <form id="product-form">
+              <label>Cookie diameter (mm)<input type="number" name="cookieDiameter" value="45" step="0.1" /></label>
+              <label>Cookie thickness (mm)<input type="number" name="cookieThickness" value="12" step="0.1" /></label>
+              <label>Total quantity<input type="number" name="qtyTotal" value="24" min="1" step="1" /></label>
+              <label>Distribute by
+                <select name="distributeBy">
+                  <option value="nCells">Number of cells</option>
+                  <option value="cookiesPerCell">Cookies per cell</option>
+                </select>
+              </label>
+              <label id="product-ncells-field">Number of cells<input type="number" name="nCellsProduct" value="3" min="1" step="1" /></label>
+              <label id="product-percell-field" style="display:none">Cookies per cell<input type="number" name="cookiesPerCell" value="8" min="1" step="1" /></label>
+            </form>
+            <p id="product-hint">
+              Suggests cell width / length / cradle radius / cell count in the Tray section below, and drives the
+              product fill preview. Edit a suggested tray field directly and your value wins from then on.
+            </p>
+          </section>
 
-          <form id="direct-form" class="tab-panel active">
-            <label>Cells (N)<input type="number" name="nCells" value="3" min="1" step="1" /></label>
-            <label>Long axis
-              <select name="longAxis">
-                <option value="X">X (length-wise)</option>
-                <option value="Y">Y (width-wise)</option>
-              </select>
-            </label>
-            <label>Cell length (mm)<input type="number" name="cellLen" value="170" step="0.1" /></label>
-            <label>Cell width (mm)<input type="number" name="cellWid" value="48" step="0.1" /></label>
-            <label>Cell height (mm)<input type="number" name="cellH" value="28" step="0.1" /></label>
-            <label>Cradle radius (mm, blank = full round)<input type="number" name="cradleR" placeholder="cellWid/2" step="0.1" /></label>
-            <label>Wall (mm)<input type="number" name="wall" value="3.0" step="0.1" /></label>
-            <label>Floor (mm)<input type="number" name="floor" value="2.5" step="0.1" /></label>
-            <label>Corner radius (mm)<input type="number" name="cornerR" value="8.0" step="0.1" /></label>
-            <label>Draft (deg)<input type="number" name="draftDeg" value="5.0" step="0.1" /></label>
-            <label>Flange strip, length sides (mm)<input type="number" name="stripL" value="5.0" step="0.1" /></label>
-            <label>Flange strip, width sides (mm)<input type="number" name="stripW" value="5.0" step="0.1" /></label>
-            <label>Lip height (mm)<input type="number" name="lipH" value="3.0" step="0.1" /></label>
-            <label>Flange thickness (mm)<input type="number" name="flangeT" value="2.5" step="0.1" /></label>
-            <label>Cell corner fillet (mm)<input type="number" name="cellFillet" value="2.0" step="0.1" /></label>
-            <label>Nozzle width (mm)<input type="number" name="nozzle" value="0.42" step="0.01" /></label>
-          </form>
-
-          <form id="product-form" class="tab-panel">
-            <label>Cookie diameter (mm)<input type="number" name="cookieDiameter" value="45" step="0.1" /></label>
-            <label>Cookie thickness (mm)<input type="number" name="cookieThickness" value="12" step="0.1" /></label>
-            <label>Total quantity<input type="number" name="qtyTotal" value="24" min="1" step="1" /></label>
-            <label>Distribute by
-              <select name="distributeBy">
-                <option value="nCells">Number of cells</option>
-                <option value="cookiesPerCell">Cookies per cell</option>
-              </select>
-            </label>
-            <label id="product-ncells-field">Number of cells<input type="number" name="nCellsProduct" value="3" min="1" step="1" /></label>
-            <label id="product-percell-field" style="display:none">Cookies per cell<input type="number" name="cookiesPerCell" value="8" min="1" step="1" /></label>
-            <label>Cell height (mm)<input type="number" name="cellHProduct" value="28" step="0.1" /></label>
-            <label>Side clearance (mm)<input type="number" name="sideClearance" value="1.5" step="0.1" /></label>
-            <label>End clearance (mm)<input type="number" name="endClearance" value="3.0" step="0.1" /></label>
-            <label>Cradle clearance (mm)<input type="number" name="cradleClearance" value="0" step="0.1" /></label>
-            <label>Flange strip, length sides (mm)<input type="number" name="stripLProduct" value="5.0" step="0.1" /></label>
-            <label>Flange strip, width sides (mm)<input type="number" name="stripWProduct" value="5.0" step="0.1" /></label>
-            <label>Long axis
-              <select name="longAxisProduct">
-                <option value="X">X (length-wise)</option>
-                <option value="Y">Y (width-wise)</option>
-              </select>
-            </label>
-          </form>
+          <section id="tray-section">
+            <h2>Tray</h2>
+            <form id="tray-form">
+              <label>Cells (N)<input type="number" name="nCells" value="3" min="1" step="1" /></label>
+              <label>Long axis
+                <select name="longAxis">
+                  <option value="X">X (length-wise)</option>
+                  <option value="Y">Y (width-wise)</option>
+                </select>
+              </label>
+              <label>Cell length (mm)<input type="number" name="cellLen" value="170" step="0.1" /></label>
+              <label>Cell width (mm)<input type="number" name="cellWid" value="48" step="0.1" /></label>
+              <label>Cell height (mm)<input type="number" name="cellH" value="28" step="0.1" /></label>
+              <label>Cradle radius (mm, blank = full round)<input type="number" name="cradleR" placeholder="cellWid/2" step="0.1" /></label>
+              <label>Wall (mm)<input type="number" name="wall" value="3.0" step="0.1" /></label>
+              <label>Divider (mm, blank = wall)<input type="number" name="divider" placeholder="wall" step="0.1" /></label>
+              <label>Cell pitch (mm, center-to-center)<input type="number" name="pitch" step="0.1" /></label>
+              <label>Floor (mm)<input type="number" name="floor" value="2.5" step="0.1" /></label>
+              <label>Corner radius (mm)<input type="number" name="cornerR" value="8.0" step="0.1" /></label>
+              <label>Draft (deg)<input type="number" name="draftDeg" value="5.0" step="0.1" /></label>
+              <label>Flange strip, length sides (mm)<input type="number" name="stripL" value="5.0" step="0.1" /></label>
+              <label>Flange strip, width sides (mm)<input type="number" name="stripW" value="5.0" step="0.1" /></label>
+              <label>Lip height (mm)<input type="number" name="lipH" value="3.0" step="0.1" /></label>
+              <label>Flange thickness (mm)<input type="number" name="flangeT" value="2.5" step="0.1" /></label>
+              <label>Cell corner fillet (mm)<input type="number" name="cellFillet" value="2.0" step="0.1" /></label>
+              <label>Nozzle width (mm)<input type="number" name="nozzle" value="0.42" step="0.01" /></label>
+            </form>
+          </section>
 
           <div id="messages"></div>
           <div id="derived-summary"></div>

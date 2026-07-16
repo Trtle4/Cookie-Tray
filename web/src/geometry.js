@@ -18,16 +18,24 @@
  *    stripL != stripW still gets a real 45 degree chamfer on the axis with
  *    the larger inset.
  * 5. Internal cell walls stay vertical — only the outer body lofts/drafts.
- * 6. The base taper is bounded: it only tapers over draftH (never insetting
- *    the base past wall - 0.5mm), then goes vertical up to the rim. An
- *    unbounded full-height taper would inset the base past the wall
- *    thickness on tall cells, undercutting them.
+ * 6. The base taper is a SINGLE continuous loft over the full height H,
+ *    never a bounded band + vertical step (that used to leave a visible
+ *    crease on tall/thin-walled trays). When the wall is thin relative to
+ *    cell height, the inset is limited so it never exceeds wall - MIN_WALL
+ *    (the loft's implied angle just gets gentler — no extra angle math
+ *    needed since a loft, unlike a taper-extrude, has no "angle" input).
  * 7. The trough cut is extended a few mm above the rim so the cut passes
  *    cleanly through the flange/lip instead of leaving a coincident face
  *    (a boolean sliver) exactly at z=H.
+ * 8. A thin wall combined with a comparatively large cornerR leaves a
+ *    numerically fragile boolean seam near the tray's own rounded corner
+ *    (independent of cradle/draft) that a big-enough trough plan-view
+ *    fillet resolves as a side effect — see the cellFillet floor below.
  */
 
 import { drawRoundedRectangle, drawCircle } from "replicad";
+
+import { MIN_WALL } from "./params.js";
 
 /** A rounded-rectangle sketch on plane `plane` (default XY) at offset `z`. */
 function rrectSketch(L, W, r, z = 0, plane = "XY") {
@@ -104,41 +112,29 @@ function troughNeg(cx, cy, floor, cellLen, cellWid, cellH, cradleR, fil) {
 export function buildTray(p) {
   const R = Math.min(p.cradleR, p.cellWid / 2);
   const topL = p.cellLen + 2 * p.wall;
-  const topW = p.nCells * p.cellWid + (p.nCells + 1) * p.wall;
+  // Outer walls (both sides) are `wall`; the nCells-1 internal dividers
+  // between cells are `divider`.
+  const topW = p.nCells * p.cellWid + 2 * p.wall + (p.nCells - 1) * p.divider;
+  const pitch = p.cellWid + p.divider; // cell center-to-center spacing
   const H = p.floor + p.cellH;
   const draftRad = (p.draftDeg * Math.PI) / 180;
-  // Bounded base taper offset: never exceeds wall - 0.5mm, regardless of
-  // cell height (an unbounded H*tan(draftDeg) would inset the base past the
-  // wall thickness on tall cells, undercutting them).
-  const dUnbounded = p.draftDeg > 0 ? H * Math.tan(draftRad) : 0;
-  const baseOffset = Math.max(0, Math.min(dUnbounded, p.wall - 0.5));
-  const draftH = p.draftDeg > 0 && baseOffset > 0 ? baseOffset / Math.tan(draftRad) : 0;
+  // Base inset for a SINGLE continuous loft over the full height H, limited
+  // so it never exceeds wall - MIN_WALL (thin walls just get a gentler
+  // continuous taper, never a step).
+  const maxInset = Math.max(0, p.wall - MIN_WALL);
+  const fullInset = p.draftDeg > 0 ? H * Math.tan(draftRad) : 0;
+  const draftOffset = Math.min(fullInset, maxInset);
   const oL = topL + 2 * p.stripL;
   const oW = topW + 2 * p.stripW;
   // min() keeps the corner blend clean when the two strip widths differ.
   const oR = p.cornerR + Math.min(p.stripL, p.stripW);
   const lipT = 3 * p.nozzle;
 
-  // Drafted body: bounded base taper (bottom radius derived so the top
-  // lands exactly on cornerR), then straight vertical walls up to the rim
-  // once the taper completes at draftH. Short trays where the unbounded
-  // taper never reaches the wall limit get draftH === H, i.e. a single loft
-  // over the full height (unchanged from before).
-  let part;
-  if (baseOffset <= 1e-9) {
-    part = rrectSketch(topL, topW, p.cornerR, 0).extrude(H);
-  } else if (draftH >= H - 1e-6) {
-    const bottom = rrectSketch(topL - 2 * baseOffset, topW - 2 * baseOffset, p.cornerR - baseOffset, 0);
-    const top = rrectSketch(topL, topW, p.cornerR, H);
-    part = bottom.loftWith(top);
-  } else {
-    const bottom = rrectSketch(topL - 2 * baseOffset, topW - 2 * baseOffset, p.cornerR - baseOffset, 0);
-    const loftTop = rrectSketch(topL, topW, p.cornerR, draftH);
-    const tapered = bottom.loftWith(loftTop);
-    const straightBase = rrectSketch(topL, topW, p.cornerR, draftH);
-    const straight = straightBase.extrude(H - draftH);
-    part = tapered.fuse(straight);
-  }
+  // Drafted body: one continuous loft from the inset base (bottom radius
+  // derived so the top lands exactly on cornerR) to the full-size rim.
+  const bottom = rrectSketch(topL - 2 * draftOffset, topW - 2 * draftOffset, p.cornerR - draftOffset, 0);
+  const top = rrectSketch(topL, topW, p.cornerR, H);
+  let part = bottom.loftWith(top);
 
   // Flange strip flush with rim.
   part = part.fuse(rrectSketch(oL, oW, oR, H - p.flangeT).extrude(p.flangeT));
@@ -161,10 +157,25 @@ export function buildTray(p) {
   const lipInner = rrectSketch(oL - 2 * lipT, oW - 2 * lipT, oR - lipT, H).extrude(p.lipH);
   part = part.fuse(lipOuter.cut(lipInner));
 
-  // Cut cells LAST (prevents boolean slivers capping the openings).
+  // Cut cells LAST (prevents boolean slivers capping the openings). Cell 0
+  // starts after the outer wall; consecutive cells are spaced by pitch
+  // (cellWid + divider).
+  //
+  // A thin wall combined with a comparatively large cornerR leaves a
+  // numerically fragile boolean seam near the tray's own rounded corner
+  // (independent of cradle/draft) that a big-enough plan-view corner
+  // fillet on the trough resolves as a side effect, the same class of OCC
+  // boolean fragility as the shallow-cradle case the fillet already fixes.
+  // Bump the fillet radius used for the cut (never below what the user
+  // asked for) only in that risky range.
+  let cellFillet = p.cellFillet;
+  if (p.wall < 2.0 && p.cornerR > 6.0) {
+    cellFillet = Math.max(cellFillet, 5.0);
+  }
+
   for (let j = 0; j < p.nCells; j++) {
-    const cy = -topW / 2 + p.wall + p.cellWid / 2 + j * (p.cellWid + p.wall);
-    part = part.cut(troughNeg(0, cy, p.floor, p.cellLen, p.cellWid, p.cellH, R, p.cellFillet));
+    const cy = -topW / 2 + p.wall + p.cellWid / 2 + j * pitch;
+    part = part.cut(troughNeg(0, cy, p.floor, p.cellLen, p.cellWid, p.cellH, R, cellFillet));
   }
 
   if (p.longAxis === "Y") {

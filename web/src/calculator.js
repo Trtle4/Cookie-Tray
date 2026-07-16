@@ -1,13 +1,21 @@
 /**
  * Inverse calculator — JS port of cookie_tray/calculator.py (§5).
- * Product dimensions -> the same TrayParams shape the "Direct" mode produces.
- * Layouts are 1xN, so there is no 2D row x col factoring — just distribute a
- * cookie count along one axis.
+ * Product dimensions -> tray-shaping suggestions. Layouts are 1xN, so there
+ * is no 2D row x col factoring — just distribute a cookie count along one
+ * axis.
  */
 
 import { makeTrayParams } from "./params.js";
 
-export function deriveParamsFromProduct(spec) {
+/**
+ * The core product -> tray-shape math (cellWid/cellLen/cradleR/nCells),
+ * without requiring or producing a full TrayParams. Used both as a
+ * lightweight suggestion source for the always-visible tray form (main.js
+ * fills in cellWid/cellLen/cradleR/nCells from this unless the user has
+ * edited those fields themselves) and as the basis for the full round-trip
+ * in `deriveParamsFromProduct`.
+ */
+export function suggestFromProduct(spec) {
   const {
     cookieDiameter,
     cookieThickness,
@@ -17,18 +25,6 @@ export function deriveParamsFromProduct(spec) {
     sideClearance = 1.5,
     endClearance = 3.0,
     cradleClearance = 0.0,
-    cellH, // explicit trough depth (mm); independent of cookie size, required
-    longAxis = "X",
-    wall = 3.0,
-    floor = 2.5,
-    cornerR = 8.0,
-    draftDeg = 5.0,
-    stripL = 5.0,
-    stripW = 5.0,
-    lipH = 3.0,
-    flangeT = 2.5,
-    cellFillet = 2.0,
-    nozzle = 0.42,
   } = spec;
 
   if ((nCells === null) === (cookiesPerCell === null)) {
@@ -39,9 +35,6 @@ export function deriveParamsFromProduct(spec) {
   }
   if (!(cookieDiameter > 0) || !(cookieThickness > 0)) {
     throw new Error("cookieDiameter and cookieThickness must be > 0");
-  }
-  if (!(cellH > 0)) {
-    throw new Error(`cellH must be > 0, got ${cellH}`);
   }
 
   const cellWid = cookieDiameter + 2 * sideClearance;
@@ -61,14 +54,46 @@ export function deriveParamsFromProduct(spec) {
 
   const cellLen = finalCookiesPerCell * cookieThickness + endClearance;
 
+  return { nCells: finalNCells, cellLen, cellWid, cradleR, cookiesPerCell: finalCookiesPerCell };
+}
+
+/**
+ * Full product spec -> a fully-populated TrayParams (via makeTrayParams),
+ * for programmatic/complete use. Requires `cellH` explicitly (independent
+ * of cookie size) plus any tray-shaping inputs not derived from product
+ * dims — everything else falls back to TrayParams' own defaults.
+ */
+export function deriveParamsFromProduct(spec) {
+  const suggestion = suggestFromProduct(spec);
+  const {
+    cellH, // explicit trough depth (mm); independent of cookie size, required
+    longAxis = "X",
+    wall = 3.0,
+    divider = null,
+    floor = 2.5,
+    cornerR = 8.0,
+    draftDeg = 5.0,
+    stripL = 5.0,
+    stripW = 5.0,
+    lipH = 3.0,
+    flangeT = 2.5,
+    cellFillet = 2.0,
+    nozzle = 0.42,
+  } = spec;
+
+  if (!(cellH > 0)) {
+    throw new Error(`cellH must be > 0, got ${cellH}`);
+  }
+
   const rawParams = {
-    nCells: finalNCells,
+    nCells: suggestion.nCells,
     longAxis,
-    cellLen,
-    cellWid,
+    cellLen: suggestion.cellLen,
+    cellWid: suggestion.cellWid,
     cellH,
-    cradleR,
+    cradleR: suggestion.cradleR,
     wall,
+    divider,
     floor,
     cornerR,
     draftDeg,
@@ -84,6 +109,6 @@ export function deriveParamsFromProduct(spec) {
   const result = makeTrayParams(rawParams);
   return {
     ...result,
-    meta: { cookiesPerCell: finalCookiesPerCell, nCells: finalNCells },
+    meta: { cookiesPerCell: suggestion.cookiesPerCell, nCells: suggestion.nCells },
   };
 }

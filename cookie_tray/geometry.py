@@ -11,12 +11,12 @@ spec ("Gotchas") before touching either:
    ``corner_r`` (what the flange references). A fixed bottom radius would
    make the top radius grow with draft and the flange would miss the body
    at the corners.
-3. The base taper is bounded: it only tapers over ``draft_h`` (never
-   insetting the base past ``wall - 0.5``mm), then goes vertical up to the
-   rim. An unbounded full-height taper would inset the base past the wall
-   thickness on tall cells, undercutting them. Short trays (where the
-   unbounded taper never reaches the wall limit) are unaffected — ``draft_h``
-   lands exactly on ``H`` and the body is a single loft, as before.
+3. The base taper is a SINGLE continuous loft over the full height H, never
+   a bounded band + vertical step (that used to leave a visible crease on
+   tall/thin-walled trays). When the wall is thin relative to cell height,
+   the draft *angle* itself shrinks (``effective_draft_deg``) so the base
+   inset never exceeds ``wall - MIN_WALL``, instead of tapering steeply for
+   part of the height and going vertical for the rest.
 4. The trough cut is extended a few mm above the rim so the boolean cut
    passes cleanly through the flange/lip instead of leaving a coincident
    face (and a boolean sliver) exactly at z=H.
@@ -149,19 +149,13 @@ def build_tray(params: TrayParams) -> cq.Workplane:
     top_W = p.top_W
     o_L, o_W, o_r = p.outer_L, p.outer_W, p.outer_r
 
-    # Drafted body: bounded base taper (bottom radius derived so the top
-    # lands exactly on corner_r), then straight vertical walls up to the
-    # rim once the taper completes at draft_h. Short trays where the
-    # unbounded taper never reaches the wall limit get draft_h == H, i.e. a
-    # single loft over the full height (unchanged from before).
-    if p.draft_offset <= 1e-9:
-        body = rrect(p.top_L, p.top_W, p.corner_r).extrude(H)
-    elif p.draft_h >= H - 1e-6:
-        body = rrect(p.bottom_L, p.bottom_W, p.bottom_corner_r).extrude(H, taper=-p.draft_deg)
-    else:
-        tapered = rrect(p.bottom_L, p.bottom_W, p.bottom_corner_r).extrude(p.draft_h, taper=-p.draft_deg)
-        straight = rrect(p.top_L, p.top_W, p.corner_r).extrude(H - p.draft_h).translate((0, 0, p.draft_h))
-        body = tapered.union(straight)
+    # Drafted body: ONE continuous taper from the inset base (bottom radius
+    # derived so the top lands exactly on corner_r) to the rim, using
+    # effective_draft_deg rather than draft_deg so a wall-limited inset
+    # still lands exactly on bottom_L/bottom_W over the full height H (no
+    # vertical band/step). When draft_offset is 0 (no draft, or draft_deg
+    # 0), effective_draft_deg is 0 too, so this is just a plain extrude.
+    body = rrect(p.bottom_L, p.bottom_W, p.bottom_corner_r).extrude(H, taper=-p.effective_draft_deg)
 
     # Flange strip flush with rim (outer flange beyond body).
     body = body.union(
@@ -197,10 +191,25 @@ def build_tray(params: TrayParams) -> cq.Workplane:
     part = body.union(lip)
 
     # Cut cells LAST (prevents boolean slivers capping the openings).
+    # Cell 0 starts after the outer wall; consecutive cells are spaced by
+    # the pitch (cell_wid + divider) — outer walls use `wall`, internal
+    # dividers between cells use `divider` (see top_W).
+    #
+    # A thin wall combined with a comparatively large corner_r leaves a
+    # numerically fragile boolean seam near the tray's own rounded corner
+    # (independent of cradle/draft) that a big-enough plan-view corner
+    # fillet on the trough resolves as a side effect, the same class of OCC
+    # boolean fragility as the shallow-cradle case the fillet already fixes.
+    # Bump the fillet radius used for the cut (never below what the user
+    # asked for) only in that risky range.
+    cell_fillet = p.cell_fillet
+    if p.wall < 2.0 and p.corner_r > 6.0:
+        cell_fillet = max(cell_fillet, 5.0)
+
     for j in range(p.n_cells):
-        cy = -top_W / 2 + p.wall + p.cell_wid / 2 + j * (p.cell_wid + p.wall)
+        cy = -top_W / 2 + p.wall + p.cell_wid / 2 + j * p.pitch
         part = part.cut(
-            trough_neg(0.0, cy, p.floor, p.cell_len, p.cell_wid, p.cell_h, p.cradle_r, p.cell_fillet)
+            trough_neg(0.0, cy, p.floor, p.cell_len, p.cell_wid, p.cell_h, p.cradle_r, cell_fillet)
         )
 
     if p.long_axis == "Y":

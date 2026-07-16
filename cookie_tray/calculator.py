@@ -31,6 +31,7 @@ class ProductSpec:
     # Pass-through §3 inputs not derived from product dims.
     long_axis: str = "X"
     wall: float = 3.0
+    divider: Optional[float] = None  # defaults to wall, same as TrayParams
     floor: float = 2.5
     corner_r: float = 8.0
     draft_deg: float = 5.0
@@ -86,6 +87,7 @@ def derive_params(spec: ProductSpec) -> TrayParams:
         cell_h=spec.cell_h,
         cradle_r=cradle_r,
         wall=spec.wall,
+        divider=spec.divider,
         floor=spec.floor,
         corner_r=spec.corner_r,
         draft_deg=spec.draft_deg,

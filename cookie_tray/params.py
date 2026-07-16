@@ -11,8 +11,11 @@ from __future__ import annotations
 
 import warnings
 from dataclasses import dataclass, fields
-from math import radians, tan
+from math import atan, degrees, radians, tan
 from typing import Optional
+
+MIN_WALL = 0.8  # outer-wall floor: draft angle is reduced to respect this
+MIN_DIVIDER = 0.8  # internal-divider floor
 
 
 @dataclass
@@ -24,7 +27,8 @@ class TrayParams:
     cell_wid: float = 48.0
     cell_h: float = 28.0
     cradle_r: Optional[float] = None  # defaults to cell_wid/2
-    wall: float = 3.0
+    wall: float = 3.0  # outer-wall thickness
+    divider: Optional[float] = None  # internal cell-to-cell wall thickness; defaults to wall
     floor: float = 2.5
     corner_r: float = 8.0
     draft_deg: float = 5.0
@@ -38,6 +42,8 @@ class TrayParams:
     def __post_init__(self) -> None:
         if self.cradle_r is None:
             self.cradle_r = self.cell_wid / 2.0
+        if self.divider is None:
+            self.divider = self.wall
         self._validate()
 
     # ---- Validation guards — spec §3 ----
@@ -65,14 +71,27 @@ class TrayParams:
                 "the rounded bottom cannot complete otherwise."
             )
 
-        # Guard 3: corner_r > base_offset (the bounded base taper offset,
-        # never more than wall - 0.5mm — see draft_offset), else
-        # bottom_corner_r goes non-positive and the drafted racetrack
-        # degenerates. Cell height is unrestricted since draft_offset is
-        # capped regardless of how tall the cell is.
+        # Wall floor: draft angle is reduced to fit thin walls (see
+        # draft_offset), but the wall itself has a hard minimum.
+        if self.wall < MIN_WALL:
+            raise ValueError(f"wall ({self.wall}) must be >= {MIN_WALL}mm")
+        if self.floor <= 0:
+            raise ValueError("floor must be > 0")
+
+        # Non-blocking note: draft angle was reduced from draft_deg to keep
+        # the base inset within the wall's clearance (see draft_offset).
+        full_inset = self.H * tan(radians(self.draft_deg)) if self.draft_deg > 0 else 0.0
+        if full_inset > self.draft_offset + 1e-9:
+            warnings.warn("Draft reduced to fit a thin wall.", stacklevel=3)
+
+        # Guard 3: corner_r > draft_offset (the wall-limited base inset),
+        # else bottom_corner_r goes non-positive and the drafted racetrack
+        # degenerates. Cell height is unrestricted: the draft is a single
+        # continuous taper over the full height, its angle (not just a
+        # bounded band) shrinks to respect the wall.
         if self.corner_r <= self.draft_offset:
             raise ValueError(
-                f"corner_r ({self.corner_r}) must exceed the base taper offset "
+                f"corner_r ({self.corner_r}) must exceed the draft inset "
                 f"({self.draft_offset:.4f}); otherwise bottom_corner_r is non-positive."
             )
 
@@ -101,8 +120,9 @@ class TrayParams:
                 f"({2 * self.cell_fillet})"
             )
 
-        if self.wall <= 0 or self.floor <= 0:
-            raise ValueError("wall and floor must be > 0")
+        # Guard 6: divider >= MIN_DIVIDER.
+        if self.divider < MIN_DIVIDER:
+            raise ValueError(f"divider ({self.divider}) must be >= {MIN_DIVIDER}mm")
 
     # ---- Derived (computed, read-only) — spec §3 ----
     @property
@@ -115,7 +135,16 @@ class TrayParams:
 
     @property
     def top_W(self) -> float:
-        return self.n_cells * self.cell_wid + (self.n_cells + 1) * self.wall
+        # Outer walls (both sides) are `wall`; the n_cells-1 internal
+        # dividers between cells are `divider`.
+        return self.n_cells * self.cell_wid + 2 * self.wall + (self.n_cells - 1) * self.divider
+
+    @property
+    def pitch(self) -> float:
+        """Cell center-to-center spacing — an alternate view of `divider`
+        (pitch = cell_wid + divider). Purely a display/UI convenience; the
+        stored input is `divider`."""
+        return self.cell_wid + self.divider
 
     @property
     def H(self) -> float:
@@ -123,23 +152,18 @@ class TrayParams:
 
     @property
     def draft_offset(self) -> float:
-        """Base taper offset actually applied to the body's bottom footprint.
+        """Base inset applied by the single continuous draft over the full
+        height H, limited so the base never insets past ``wall - MIN_WALL``.
 
-        Bounded to never exceed ``wall - 0.5``mm, regardless of how tall the
-        cell is: an unbounded ``H * tan(draft_deg)`` would inset the base
-        past the wall thickness on tall cells, undercutting the cells (see
-        ``geometry.build_tray``, which lofts only up to ``draft_h`` and goes
-        vertical above that instead of tapering over the full height ``H``).
+        The draft is now always ONE continuous loft from base to rim (no
+        vertical band/step): when the wall is thin relative to cell height,
+        the *angle* itself shrinks (see ``effective_draft_deg`` in
+        geometry.py) rather than tapering steeply for part of the height and
+        going vertical for the rest, which used to leave a visible crease.
         """
-        unbounded = self.H * tan(radians(self.draft_deg)) if self.draft_deg > 0 else 0.0
-        return max(0.0, min(unbounded, self.wall - 0.5))
-
-    @property
-    def draft_h(self) -> float:
-        """Height at which the base taper completes and walls go vertical."""
-        if self.draft_deg <= 0 or self.draft_offset <= 0:
-            return 0.0
-        return self.draft_offset / tan(radians(self.draft_deg))
+        max_inset = max(0.0, self.wall - MIN_WALL)
+        full_inset = self.H * tan(radians(self.draft_deg)) if self.draft_deg > 0 else 0.0
+        return min(full_inset, max_inset)
 
     @property
     def bottom_L(self) -> float:
@@ -152,6 +176,14 @@ class TrayParams:
     @property
     def bottom_corner_r(self) -> float:
         return self.corner_r - self.draft_offset
+
+    @property
+    def effective_draft_deg(self) -> float:
+        """The actual (possibly wall-limited) draft angle, continuous over
+        the full height H: atan(draft_offset / H)."""
+        if self.draft_offset <= 0:
+            return 0.0
+        return degrees(atan(self.draft_offset / self.H))
 
     @property
     def outer_L(self) -> float:

@@ -1,7 +1,7 @@
 import { wrap } from "comlink";
 
 import { makeTrayParams, inputOnly } from "./params.js";
-import { deriveParamsFromProduct } from "./calculator.js";
+import { suggestFromProduct } from "./calculator.js";
 import { Viewer } from "./viewer.js";
 import { buildFillGroup } from "./fill.js";
 
@@ -9,9 +9,7 @@ const worker = new Worker(new URL("./worker.js", import.meta.url), { type: "modu
 const api = wrap(worker);
 
 const els = {
-  tabs: document.querySelectorAll(".tab-btn"),
-  panels: document.querySelectorAll(".tab-panel"),
-  directForm: document.getElementById("direct-form"),
+  trayForm: document.getElementById("tray-form"),
   productForm: document.getElementById("product-form"),
   messages: document.getElementById("messages"),
   summary: document.getElementById("derived-summary"),
@@ -28,7 +26,12 @@ const els = {
 
 const viewer = new Viewer(els.canvas);
 
-let mode = "direct";
+// Tray fields the product section can suggest a value for. If the user has
+// edited one of these directly, their value wins — the product section
+// stops overwriting it until the page is reloaded.
+const SUGGESTABLE_FIELDS = ["nCells", "cellLen", "cellWid", "cradleR"];
+const userTouched = new Set();
+
 let lastValidParams = null; // §3 input-shaped params, ready for buildTray
 let lastFillSpec = null; // { cookiesPerCell, cookieDiameter, cookieThickness, endClearance } | null
 let debounceTimer = null;
@@ -39,37 +42,38 @@ function setStatus(text) {
   els.status.classList.toggle("hidden", !text);
 }
 
-// ---- Tabs ----
-els.tabs.forEach((btn) => {
-  btn.addEventListener("click", () => {
-    els.tabs.forEach((b) => b.classList.remove("active"));
-    els.panels.forEach((p) => p.classList.remove("active"));
-    btn.classList.add("active");
-    mode = btn.dataset.tab;
-    document.getElementById(`${mode === "direct" ? "direct" : "product"}-form`).classList.add("active");
-    scheduleRebuild();
-  });
-});
-
-els.distributeBy.addEventListener("change", () => {
-  const byPerCell = els.distributeBy.value === "cookiesPerCell";
-  els.nCellsField.style.display = byPerCell ? "none" : "";
-  els.perCellField.style.display = byPerCell ? "" : "none";
-  scheduleRebuild();
-});
-
-// ---- Form change wiring ----
-for (const form of [els.directForm, els.productForm]) {
-  form.addEventListener("input", scheduleRebuild);
-  form.addEventListener("change", scheduleRebuild);
-}
-
-els.fillToggle.addEventListener("change", updateFillOverlay);
-
 function scheduleRebuild() {
   clearTimeout(debounceTimer);
   debounceTimer = setTimeout(rebuild, 250);
 }
+
+// ---- Product section: distribute-by toggle ----
+els.distributeBy.addEventListener("change", () => {
+  const byPerCell = els.distributeBy.value === "cookiesPerCell";
+  els.nCellsField.style.display = byPerCell ? "none" : "";
+  els.perCellField.style.display = byPerCell ? "" : "none";
+  applyProductSuggestions();
+});
+
+els.productForm.addEventListener("input", applyProductSuggestions);
+
+// ---- Tray section: mark suggestable fields as user-owned once edited ----
+els.trayForm.addEventListener("input", (event) => {
+  const name = event.target.name;
+  if (SUGGESTABLE_FIELDS.includes(name)) {
+    userTouched.add(name);
+    event.target.classList.remove("suggested");
+  }
+  if (name === "pitch") {
+    applyPitchEdit();
+  }
+  if (name === "divider" || name === "cellWid") {
+    refreshPitchDisplay();
+  }
+  scheduleRebuild();
+});
+
+els.fillToggle.addEventListener("change", updateFillOverlay);
 
 function formToObject(form) {
   const data = new FormData(form);
@@ -85,8 +89,8 @@ function formToObject(form) {
   return out;
 }
 
-function readDirectInput() {
-  const raw = formToObject(els.directForm);
+function readTrayInput() {
+  const raw = formToObject(els.trayForm);
   return {
     nCells: raw.nCells,
     longAxis: raw.longAxis,
@@ -95,6 +99,7 @@ function readDirectInput() {
     cellH: raw.cellH,
     cradleR: raw.cradleR,
     wall: raw.wall,
+    divider: raw.divider,
     floor: raw.floor,
     cornerR: raw.cornerR,
     draftDeg: raw.draftDeg,
@@ -116,14 +121,75 @@ function readProductInput() {
     qtyTotal: raw.qtyTotal,
     nCells: byPerCell ? null : raw.nCellsProduct,
     cookiesPerCell: byPerCell ? raw.cookiesPerCell : null,
-    cellH: raw.cellHProduct,
-    sideClearance: raw.sideClearance,
-    endClearance: raw.endClearance,
-    cradleClearance: raw.cradleClearance,
-    stripL: raw.stripLProduct,
-    stripW: raw.stripWProduct,
-    longAxis: raw.longAxisProduct,
   };
+}
+
+// ---- Divider <-> pitch (two views of the same value) ----
+function currentCellWid() {
+  const v = parseFloat(els.trayForm.elements.cellWid.value);
+  return Number.isFinite(v) ? v : 0;
+}
+
+function currentDivider() {
+  const raw = els.trayForm.elements.divider.value;
+  if (raw !== "") return parseFloat(raw);
+  const wallRaw = els.trayForm.elements.wall.value;
+  return wallRaw !== "" ? parseFloat(wallRaw) : 0;
+}
+
+/** User typed into the pitch field: back-derive divider = pitch - cellWid. */
+function applyPitchEdit() {
+  const pitchRaw = els.trayForm.elements.pitch.value;
+  if (pitchRaw === "") return;
+  const pitch = parseFloat(pitchRaw);
+  if (!Number.isFinite(pitch)) return;
+  const divider = pitch - currentCellWid();
+  els.trayForm.elements.divider.value = divider.toFixed(2);
+  userTouched.add("divider");
+}
+
+/** Refresh the pitch field to reflect cellWid + divider, unless the user is
+ * actively typing into it (don't fight their keystrokes). */
+function refreshPitchDisplay() {
+  if (document.activeElement === els.trayForm.elements.pitch) return;
+  els.trayForm.elements.pitch.value = (currentCellWid() + currentDivider()).toFixed(2);
+}
+
+// ---- Product section drives suggestions into the tray form ----
+function applyProductSuggestions() {
+  let suggestion;
+  try {
+    suggestion = suggestFromProduct(readProductInput());
+  } catch {
+    suggestion = null; // invalid product input -- leave tray fields alone
+  }
+
+  const productInput = readProductInput();
+  if (suggestion) {
+    const suggestedValues = {
+      nCells: String(suggestion.nCells),
+      cellLen: suggestion.cellLen.toFixed(1),
+      cellWid: suggestion.cellWid.toFixed(1),
+      cradleR: suggestion.cradleR.toFixed(1),
+    };
+    for (const field of SUGGESTABLE_FIELDS) {
+      if (userTouched.has(field)) continue;
+      const el = els.trayForm.elements[field];
+      el.value = suggestedValues[field];
+      el.classList.add("suggested");
+    }
+    lastFillSpec = {
+      cookiesPerCell: suggestion.cookiesPerCell,
+      cookieDiameter: productInput.cookieDiameter,
+      cookieThickness: productInput.cookieThickness,
+      endClearance: 3.0,
+    };
+  } else {
+    lastFillSpec = null;
+  }
+
+  refreshPitchDisplay();
+  scheduleRebuild();
 }
 
 function renderMessages(errors, warnings) {
@@ -152,6 +218,7 @@ function renderSummary(derived) {
     ["Overall height", `${derived.overallH.toFixed(1)} mm`],
     ["Outer footprint", `${derived.outerL.toFixed(1)} x ${derived.outerW.toFixed(1)} mm`],
     ["Footprint area", `${(derived.footprint / 100).toFixed(1)} cm^2`],
+    ["Cell pitch", `${derived.pitch.toFixed(1)} mm`],
   ];
   els.summary.innerHTML = rows.map(([k, v]) => `<div><strong>${k}:</strong> ${v}</div>`).join("");
 }
@@ -161,30 +228,11 @@ function filenameFor(params, ext) {
 }
 
 async function rebuild() {
-  let result;
-  // Direct mode preserves whatever fill spec a prior "From Product" build set,
-  // so shrinking cell dimensions by hand still shows cookies overflowing.
-  let fillSpec = lastFillSpec;
-
-  if (mode === "direct") {
-    result = makeTrayParams(readDirectInput());
-  } else {
-    const productInput = readProductInput();
-    try {
-      result = deriveParamsFromProduct(productInput);
-      fillSpec = {
-        cookiesPerCell: result.meta.cookiesPerCell,
-        cookieDiameter: productInput.cookieDiameter,
-        cookieThickness: productInput.cookieThickness,
-        endClearance: productInput.endClearance,
-      };
-    } catch (err) {
-      result = { params: null, derived: null, errors: [err.message], warnings: [] };
-    }
-  }
+  const result = makeTrayParams(readTrayInput());
 
   renderMessages(result.errors, result.warnings || []);
   renderSummary(result.derived);
+  if (result.derived) refreshPitchDisplay();
 
   if (!result.valid) {
     lastValidParams = null;
@@ -196,9 +244,8 @@ async function rebuild() {
   }
 
   lastValidParams = inputOnly(result.params);
-  lastFillSpec = fillSpec;
-  els.fillToggle.disabled = !fillSpec;
-  if (!fillSpec) els.fillToggle.checked = false;
+  els.fillToggle.disabled = !lastFillSpec;
+  if (!lastFillSpec) els.fillToggle.checked = false;
 
   const token = ++buildToken;
   setStatus("Building...");
@@ -256,7 +303,7 @@ api
   .init()
   .then(() => {
     setStatus("");
-    rebuild();
+    applyProductSuggestions(); // seed suggestable tray fields from product defaults
   })
   .catch((err) => {
     setStatus(`Failed to load OpenCASCADE: ${err.message}`);
@@ -267,6 +314,7 @@ window.__cookieTray = {
   api,
   rebuild,
   viewer,
+  userTouched,
   get lastValidParams() { return lastValidParams; },
   get lastFillSpec() { return lastFillSpec; },
 };

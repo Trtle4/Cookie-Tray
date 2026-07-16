@@ -2,9 +2,12 @@
  * Parameter model — JS port of cookie_tray/params.py (§3).
  *
  * Mirrors the Python TrayParams: inputs + derived (read-only, computed) +
- * validation guards. `makeTrayParams` is the single source of truth both the
- * "Direct" and "From product" UI modes funnel into before calling buildTray.
+ * validation guards. `makeTrayParams` is the single source of truth the UI
+ * funnels tray-form input into before calling buildTray.
  */
+
+export const MIN_WALL = 0.8; // outer-wall floor: draft angle is reduced to respect this
+export const MIN_DIVIDER = 0.8; // internal-divider floor
 
 export const DEFAULTS = Object.freeze({
   nCells: 3,
@@ -13,7 +16,8 @@ export const DEFAULTS = Object.freeze({
   cellWid: 48.0,
   cellH: 28.0,
   cradleR: null, // defaults to cellWid / 2
-  wall: 3.0,
+  wall: 3.0, // outer-wall thickness
+  divider: null, // internal cell-to-cell wall thickness; defaults to wall
   floor: 2.5,
   cornerR: 8.0,
   draftDeg: 5.0,
@@ -36,6 +40,9 @@ export function makeTrayParams(rawInput = {}) {
   const p = { ...DEFAULTS, ...rawInput };
   if (p.cradleR === null || p.cradleR === undefined) {
     p.cradleR = p.cellWid / 2;
+  }
+  if (p.divider === null || p.divider === undefined) {
+    p.divider = p.wall;
   }
 
   const errors = [];
@@ -65,21 +72,33 @@ export function makeTrayParams(rawInput = {}) {
     );
   }
 
-  // Derived values (§3 "Derived") — computed after cradle_r is resolved.
+  // Wall floor: draft angle is reduced to fit thin walls (see draftOffset
+  // below), but the wall itself has a hard minimum.
+  if (p.wall < MIN_WALL) {
+    errors.push(`wall (${p.wall}) must be >= ${MIN_WALL}mm`);
+  }
+  if (!(p.floor > 0)) {
+    errors.push("floor must be > 0");
+  }
+
+  // Derived values (§3 "Derived") — computed after cradle_r/divider are resolved.
   const lipT = 3 * p.nozzle;
   const topL = p.cellLen + 2 * p.wall;
-  const topW = p.nCells * p.cellWid + (p.nCells + 1) * p.wall;
+  // Outer walls (both sides) are `wall`; the nCells-1 internal dividers
+  // between cells are `divider`.
+  const topW = p.nCells * p.cellWid + 2 * p.wall + (p.nCells - 1) * p.divider;
+  const pitch = p.cellWid + p.divider; // cell center-to-center spacing
   const H = p.floor + p.cellH;
   const draftRad = (p.draftDeg * Math.PI) / 180;
-  // Bounded base taper offset: never exceeds wall - 0.5mm, regardless of
-  // cell height. An unbounded H*tan(draftDeg) would inset the base past
-  // the wall thickness on tall cells, undercutting them — geometry.js lofts
-  // only up to draftH and goes vertical above that instead of tapering the
-  // full height H (see buildTray).
-  const dUnbounded = p.draftDeg > 0 ? H * Math.tan(draftRad) : 0;
-  const draftOffset = Math.max(0, Math.min(dUnbounded, p.wall - 0.5));
-  // Height at which the base taper completes and walls go vertical.
-  const draftH = p.draftDeg > 0 && draftOffset > 0 ? draftOffset / Math.tan(draftRad) : 0;
+  // Base inset applied by a SINGLE continuous draft over the full height H,
+  // limited so the base never insets past wall - MIN_WALL. When the wall is
+  // thin relative to cell height, the draft *angle* itself shrinks
+  // (effectiveDraftDeg) rather than tapering steeply for part of the height
+  // and going vertical for the rest, which used to leave a visible crease.
+  const maxInset = Math.max(0, p.wall - MIN_WALL);
+  const fullInset = p.draftDeg > 0 ? H * Math.tan(draftRad) : 0;
+  const draftOffset = Math.min(fullInset, maxInset);
+  const effectiveDraftDeg = draftOffset > 0 ? (Math.atan(draftOffset / H) * 180) / Math.PI : 0;
   const bottomL = topL - 2 * draftOffset;
   const bottomW = topW - 2 * draftOffset;
   const bottomCornerR = p.cornerR - draftOffset;
@@ -90,12 +109,19 @@ export function makeTrayParams(rawInput = {}) {
   const overallH = H + p.lipH;
   const footprint = outerL * outerW;
 
-  // Guard 3: corner_r > base_offset (the bounded taper offset), else
-  // bottom_corner_r goes non-positive. Cell height is unrestricted since
-  // draftOffset is capped regardless of how tall the cell is.
+  // Non-blocking note: draft angle was reduced from draftDeg to keep the
+  // base inset within the wall's clearance.
+  if (fullInset > draftOffset + 1e-9) {
+    warnings.push("Draft reduced to fit a thin wall.");
+  }
+
+  // Guard 3: corner_r > draft_offset (the wall-limited base inset), else
+  // bottom_corner_r goes non-positive. Cell height is unrestricted: the
+  // draft is a single continuous taper over the full height, its angle
+  // (not just a bounded band) shrinks to respect the wall.
   if (p.cornerR <= draftOffset) {
     errors.push(
-      `corner_r (${p.cornerR}) must exceed the base taper offset (${draftOffset.toFixed(3)}); otherwise bottom_corner_r is non-positive.`
+      `corner_r (${p.cornerR}) must exceed the draft inset (${draftOffset.toFixed(3)}); otherwise bottom_corner_r is non-positive.`
     );
   }
 
@@ -120,17 +146,19 @@ export function makeTrayParams(rawInput = {}) {
     errors.push(`cell_len (${p.cellLen}) must exceed 2*cell_fillet (${2 * p.cellFillet})`);
   }
 
-  if (!(p.wall > 0) || !(p.floor > 0)) {
-    errors.push("wall and floor must be > 0");
+  // Guard 6: divider >= MIN_DIVIDER.
+  if (p.divider < MIN_DIVIDER) {
+    errors.push(`divider (${p.divider}) must be >= ${MIN_DIVIDER}mm`);
   }
 
   const derived = {
     lipT,
     topL,
     topW,
+    pitch,
     H,
     draftOffset,
-    draftH,
+    effectiveDraftDeg,
     bottomL,
     bottomW,
     bottomCornerR,

@@ -26,17 +26,20 @@ npm install
 npm run dev
 ```
 
-Open the printed local URL. The left panel has two tabs:
+Open the printed local URL. The left panel has two always-visible sections:
 
-- **Direct** — set every tray parameter (§3 of the spec) directly.
-- **From Product** — set cookie diameter/thickness/quantity and either a
-  cell count or cookies-per-cell; the calculator derives the tray
-  parameters (same shape either way — both feed the same `buildTray`).
+- **Product** — cookie diameter/thickness/quantity and either a cell count
+  or cookies-per-cell. This drives the product-fill preview and *suggests*
+  values for the Tray section's cell width/length/cradle radius/cell count.
+- **Tray** — every tray parameter (§3 of the spec), directly editable.
+  Fields currently populated by a Product suggestion are highlighted; typing
+  into one makes it yours from then on (the Product section stops
+  overwriting it). Divider and cell pitch are two views of the same value —
+  editing either updates the other.
 
 Toggle **Show product fill** to overlay the packed cookies at true size —
-useful for sanity-checking that a hand-tuned Direct-mode tray still fits the
-product from your last "From Product" spec (shrink a dimension and watch the
-discs poke through the wall).
+useful for sanity-checking that a hand-tuned Tray field still fits the
+product spec (shrink a dimension and watch the discs poke through the wall).
 
 ## Build
 
