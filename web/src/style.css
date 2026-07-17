@@ -153,6 +153,11 @@ main {
   background: #eef3ff;
 }
 
+#tray-form input.invalid {
+  border-color: var(--error);
+  background: #fdecea;
+}
+
 #messages {
   margin-top: 0.75rem;
 }
@@ -198,6 +203,15 @@ main {
   flex: 1;
   display: block;
   min-height: 0;
+  transition: opacity 0.15s, filter 0.15s;
+}
+
+/* Shown while the displayed shape no longer matches current form input --
+ * either guards reject it outright, or the last build attempt threw and
+ * this is a stale-but-still-exportable previous shape. */
+#three-canvas.stale {
+  opacity: 0.45;
+  filter: grayscale(60%);
 }
 
 #viewport-toolbar {
@@ -220,6 +234,7 @@ main {
 
 .cam-btn {
   padding: 0.3rem 0.6rem;
+  min-height: 36px;
   border: 1px solid var(--border);
   background: #fff;
   color: var(--text);
@@ -293,5 +308,10 @@ main {
 
   #section-slider {
     width: 100px;
+  }
+
+  .cam-btn {
+    min-height: 44px;
+    padding: 0.4rem 0.7rem;
   }
 }

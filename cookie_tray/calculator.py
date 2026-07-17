@@ -78,14 +78,11 @@ class ProductSpec:
             raise ValueError(f"cell_h must be > 0, got {self.cell_h}")
 
 
-def derive_params(spec: ProductSpec) -> TrayParams:
-    """Product spec -> a fully-populated :class:`TrayParams`.
-
-    Round-trip requirement (§5): the returned params must pass every §3
-    guard. ``TrayParams.__post_init__`` validates on construction, so a bad
-    product spec — including a ``cell_h`` too shallow for the cradle it
-    implies — surfaces as a ``ValueError`` right here rather than silently
-    growing the tray past what was asked for.
+def _resolve_product_cell_shape(spec: ProductSpec) -> tuple[float, float, float]:
+    """The single round/rect branch point: (cell_wid, pack_pitch, cradle_r)
+    for the given spec. The round/rectangle rules (cell_wid formula,
+    "rectangles suggest a 5mm cradle" rule) live here and nowhere else, so
+    they can't drift if a second call site is ever added.
     """
     if spec.product_type == "rectangle":
         cell_wid = spec.product_width + 2 * spec.side_clearance
@@ -102,6 +99,20 @@ def derive_params(spec: ProductSpec) -> TrayParams:
     else:
         cradle_r = cell_wid / 2.0 - spec.cradle_clearance
     cradle_r = min(max(cradle_r, 1e-6), max_cradle_r)  # clamp to (0, cell_wid/2]
+
+    return cell_wid, pack_pitch, cradle_r
+
+
+def derive_params(spec: ProductSpec) -> TrayParams:
+    """Product spec -> a fully-populated :class:`TrayParams`.
+
+    Round-trip requirement (§5): the returned params must pass every §3
+    guard. ``TrayParams.__post_init__`` validates on construction, so a bad
+    product spec — including a ``cell_h`` too shallow for the cradle it
+    implies — surfaces as a ``ValueError`` right here rather than silently
+    growing the tray past what was asked for.
+    """
+    cell_wid, pack_pitch, cradle_r = _resolve_product_cell_shape(spec)
 
     if spec.cookies_per_cell is not None:
         cookies_per_cell = spec.cookies_per_cell

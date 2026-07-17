@@ -44,6 +44,10 @@ let lastValidParams = null; // §3 input-shaped params, ready for buildTray
 let lastFillSpec = null; // { cookiesPerCell, cookieDiameter, cookieThickness, endClearance } | null
 let debounceTimer = null;
 let buildToken = 0;
+let hasEverBuilt = false; // true once any build has ever succeeded -- lets a
+// later build FAILURE keep exporting that still-valid previous shape
+// instead of stranding it behind disabled buttons (worker.js keeps
+// currentShape pointed at the last success on failure; see build()).
 
 function setStatus(text) {
   els.status.textContent = text;
@@ -251,7 +255,7 @@ function renderMessages(errors, warnings) {
   for (const e of errors) {
     const div = document.createElement("div");
     div.className = "msg error";
-    div.textContent = e;
+    div.textContent = typeof e === "string" ? e : e.message;
     els.messages.appendChild(div);
   }
   for (const w of warnings) {
@@ -260,6 +264,61 @@ function renderMessages(errors, warnings) {
     div.textContent = w;
     els.messages.appendChild(div);
   }
+}
+
+/** Flag the specific tray-form field(s) named by each structured error with
+ * a red border, instead of leaving the user to cross-reference the
+ * aggregate message list against every field by hand. */
+function markInvalidFields(errors) {
+  for (const el of els.trayForm.elements) {
+    el.classList?.remove("invalid");
+  }
+  for (const e of errors) {
+    if (typeof e !== "object" || !e.field) continue;
+    const fields = Array.isArray(e.field) ? e.field : [e.field];
+    for (const name of fields) {
+      const el = els.trayForm.elements[name];
+      if (el) el.classList.add("invalid");
+    }
+  }
+}
+
+/** Cross-check the configured product (if any) against the built tray's
+ * cell dimensions and return non-blocking warning strings when it doesn't
+ * fit -- independent of whether the product-fill overlay is toggled on, so
+ * a mismatch is never silent. Pure/local: does not touch TrayParams. */
+function checkProductFit(params, fillSpec) {
+  if (!fillSpec) return [];
+  const isRect = fillSpec.productType === "rectangle";
+  const crossWidth = isRect ? fillSpec.productWidth : fillSpec.cookieDiameter;
+  const vertExtent = isRect ? fillSpec.productHeight : fillSpec.cookieDiameter;
+  const packPitch = isRect ? fillSpec.productThickness : fillSpec.cookieThickness;
+  if (!(crossWidth > 0) || !(vertExtent > 0) || !(packPitch > 0)) return [];
+
+  const warnings = [];
+  if (crossWidth > params.cellWid) {
+    warnings.push(
+      `Product width (${crossWidth}mm) exceeds cell width (${params.cellWid}mm) by ${(crossWidth - params.cellWid).toFixed(1)}mm.`
+    );
+  }
+  if (vertExtent > params.cellH) {
+    warnings.push(
+      `Product height (${vertExtent}mm) exceeds cell height (${params.cellH}mm) by ${(vertExtent - params.cellH).toFixed(1)}mm.`
+    );
+  }
+  const neededLen = fillSpec.cookiesPerCell * packPitch + fillSpec.endClearance;
+  if (neededLen > params.cellLen) {
+    warnings.push(
+      `Packed product length (${neededLen.toFixed(1)}mm) exceeds cell length (${params.cellLen}mm) by ${(neededLen - params.cellLen).toFixed(1)}mm.`
+    );
+  }
+  return warnings;
+}
+
+/** Dim the 3D view when the displayed shape no longer corresponds to the
+ * current form input (guards reject it, or the last build attempt threw). */
+function setViewportStale(stale) {
+  els.canvas.classList.toggle("stale", stale);
 }
 
 function renderSummary(derived) {
@@ -278,13 +337,15 @@ function renderSummary(derived) {
 }
 
 function filenameFor(params, ext) {
-  return `cookietray_${params.nCells}x_${Math.round(params.cellWid)}w_${Math.round(params.cellLen)}l.${ext}`;
+  return `cookietray_${params.nCells}x_${Math.round(params.cellWid)}w_${Math.round(params.cellLen)}l_${Math.round(params.cradleR)}r_${Math.round(params.draftDeg)}d.${ext}`;
 }
 
 async function rebuild() {
   const result = makeTrayParams(readTrayInput());
+  const fitWarnings = checkProductFit(result.params, lastFillSpec);
 
-  renderMessages(result.errors, result.warnings || []);
+  renderMessages(result.errors, [...(result.warnings || []), ...fitWarnings]);
+  markInvalidFields(result.errors);
   renderSummary(result.derived);
   if (result.derived) refreshPitchDisplay();
 
@@ -294,6 +355,7 @@ async function rebuild() {
     els.downloadStep.disabled = true;
     els.fillToggle.disabled = true;
     viewer.setFillGroup(null);
+    setViewportStale(true);
     return;
   }
 
@@ -315,13 +377,25 @@ async function rebuild() {
     viewer.setShape({ mesh, edges });
     updateFillOverlay();
     if (els.sectionToggle.checked) updateSectionPlane();
+    hasEverBuilt = true;
     els.downloadStl.disabled = false;
     els.downloadStep.disabled = false;
+    setViewportStale(false);
     setStatus("");
   } catch (err) {
     if (token !== buildToken) return;
     setStatus("");
-    renderMessages([...result.errors, `Build failed: ${err.message}`], result.warnings || []);
+    renderMessages([...result.errors, `Build failed: ${err.message}`], [...(result.warnings || []), ...fitWarnings]);
+    markInvalidFields(result.errors);
+    // The worker keeps its last successfully-built shape intact on a failed
+    // build (never deletes-then-fails), so if one exists it's still a
+    // legitimate export candidate -- don't strand it behind disabled
+    // buttons just because THIS build attempt threw.
+    if (hasEverBuilt) {
+      els.downloadStl.disabled = false;
+      els.downloadStep.disabled = false;
+    }
+    setViewportStale(true);
   }
 }
 

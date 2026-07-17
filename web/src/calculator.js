@@ -8,14 +8,14 @@
 import { makeTrayParams } from "./params.js";
 
 /**
- * The core product -> tray-shape math (cellWid/cellLen/cradleR/nCells),
- * without requiring or producing a full TrayParams. Used both as a
- * lightweight suggestion source for the always-visible tray form (main.js
- * fills in cellWid/cellLen/cradleR/nCells from this unless the user has
- * edited those fields themselves) and as the basis for the full round-trip
- * in `deriveParamsFromProduct`.
+ * The single round/rect branch point for product -> cell-shape math
+ * (cellWid, the pack pitch along the channel, vertical extent, and the
+ * cradleR suggestion). Both `suggestFromProduct` and anything else that
+ * needs this mapping should call this rather than re-deriving it, so the
+ * round/rectangle rules (cell_wid formula, "rectangles suggest a 5mm
+ * cradle" rule) live in exactly one place and can't drift from each other.
  */
-export function suggestFromProduct(spec) {
+function resolveProductCellShape(spec) {
   const {
     productType = "round",
     cookieDiameter,
@@ -23,20 +23,9 @@ export function suggestFromProduct(spec) {
     productWidth,
     productHeight,
     productThickness,
-    qtyTotal,
-    nCells = null,
-    cookiesPerCell = null,
     sideClearance = 1.5,
-    endClearance = 3.0,
     cradleClearance = 0.0,
   } = spec;
-
-  if ((nCells === null) === (cookiesPerCell === null)) {
-    throw new Error("Supply exactly one of nCells or cookiesPerCell, not both/neither.");
-  }
-  if (!(qtyTotal >= 1)) {
-    throw new Error(`qtyTotal must be >= 1, got ${qtyTotal}`);
-  }
 
   let cellWid, packPitch, vertExtent;
   if (productType === "rectangle") {
@@ -60,6 +49,29 @@ export function suggestFromProduct(spec) {
   // fixed rounded-bottom radius instead of cellWid/2.
   let cradleR = productType === "rectangle" ? 5.0 - cradleClearance : cellWid / 2 - cradleClearance;
   cradleR = Math.min(Math.max(cradleR, 0.5), maxCradleR);
+
+  return { cellWid, packPitch, vertExtent, cradleR };
+}
+
+/**
+ * The core product -> tray-shape math (cellWid/cellLen/cradleR/nCells),
+ * without requiring or producing a full TrayParams. Used both as a
+ * lightweight suggestion source for the always-visible tray form (main.js
+ * fills in cellWid/cellLen/cradleR/nCells from this unless the user has
+ * edited those fields themselves) and as the basis for the full round-trip
+ * in `deriveParamsFromProduct`.
+ */
+export function suggestFromProduct(spec) {
+  const { qtyTotal, nCells = null, cookiesPerCell = null, endClearance = 3.0 } = spec;
+
+  if ((nCells === null) === (cookiesPerCell === null)) {
+    throw new Error("Supply exactly one of nCells or cookiesPerCell, not both/neither.");
+  }
+  if (!(qtyTotal >= 1)) {
+    throw new Error(`qtyTotal must be >= 1, got ${qtyTotal}`);
+  }
+
+  const { cellWid, packPitch, vertExtent, cradleR } = resolveProductCellShape(spec);
 
   let finalNCells, finalCookiesPerCell;
   if (cookiesPerCell !== null) {

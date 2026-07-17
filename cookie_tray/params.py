@@ -68,7 +68,8 @@ class TrayParams:
         if self.cell_h < self.cradle_r:
             raise ValueError(
                 f"cell_h ({self.cell_h}) must be >= cradle_r ({self.cradle_r}); "
-                "the rounded bottom cannot complete otherwise."
+                "the rounded bottom cannot complete otherwise. Increase cell_h "
+                "or decrease cradle_r."
             )
 
         # Wall floor: draft angle is reduced to fit thin walls (see
@@ -77,6 +78,13 @@ class TrayParams:
             raise ValueError(f"wall ({self.wall}) must be >= {MIN_WALL}mm")
         if self.floor <= 0:
             raise ValueError("floor must be > 0")
+
+        # Negative draft has no physical meaning; clamp to 0 (no draft) and
+        # warn, mirroring the cradle_r over-max clamp above -- never reject,
+        # since "no draft" is always a valid fallback.
+        if self.draft_deg < 0:
+            warnings.warn("draft_deg is negative; clamped to 0 (no draft).", stacklevel=3)
+            self.draft_deg = 0.0
 
         # Non-blocking note: draft angle was reduced from draft_deg to keep
         # the base inset within the wall's clearance (see draft_offset).
@@ -123,6 +131,24 @@ class TrayParams:
         # Guard 6: divider >= MIN_DIVIDER.
         if self.divider < MIN_DIVIDER:
             raise ValueError(f"divider ({self.divider}) must be >= {MIN_DIVIDER}mm")
+
+        # Guard 7: lip_h and flange_t are extruded thicknesses -- zero or
+        # negative has no valid interpretation and previously reached OCC
+        # construction directly, surfacing as an opaque low-level error.
+        if self.lip_h <= 0:
+            raise ValueError(f"lip_h ({self.lip_h}) must be > 0")
+        if self.flange_t <= 0:
+            raise ValueError(f"flange_t ({self.flange_t}) must be > 0")
+
+        # Guard 8: nozzle and cell_fillet are physical/geometric dimensions
+        # with no valid negative interpretation (a negative nozzle width
+        # inverts the lip's inner-cut sizing; a negative fillet has no
+        # meaning). Zero remains valid for both (cell_fillet=0 means "no
+        # fillet", a legitimate sharp-corner design choice).
+        if self.nozzle < 0:
+            raise ValueError(f"nozzle ({self.nozzle}) must be >= 0")
+        if self.cell_fillet < 0:
+            raise ValueError(f"cell_fillet ({self.cell_fillet}) must be >= 0")
 
     # ---- Derived (computed, read-only) — spec §3 ----
     @property

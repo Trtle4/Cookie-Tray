@@ -26,6 +26,10 @@ let currentShape = null;
 
 async function build(params) {
   await init();
+  // Build the NEW shape before touching the old one: if buildTray throws,
+  // currentShape must keep pointing at the last successfully-built (valid,
+  // still-exportable) shape rather than a freed/dangling reference.
+  const newShape = buildTray(params);
   if (currentShape) {
     try {
       currentShape.delete();
@@ -33,7 +37,7 @@ async function build(params) {
       // already freed
     }
   }
-  currentShape = buildTray(params);
+  currentShape = newShape;
   const mesh = currentShape.mesh();
   const edges = currentShape.meshEdges();
   const bbox = currentShape.boundingBox;

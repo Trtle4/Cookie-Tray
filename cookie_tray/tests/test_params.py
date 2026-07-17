@@ -190,3 +190,57 @@ def test_pitch_equals_cell_wid_plus_divider():
 def test_divider_below_min_divider_raises():
     with pytest.raises(ValueError, match="divider"):
         TrayParams(divider=0.5)
+
+
+def test_negative_draft_deg_warns_and_clamps_to_zero():
+    with pytest.warns(UserWarning, match="draft_deg is negative"):
+        p = TrayParams(draft_deg=-10.0)
+    assert p.draft_deg == pytest.approx(0.0)
+    assert p.draft_offset == pytest.approx(0.0)
+    assert p.effective_draft_deg == pytest.approx(0.0)
+
+
+def test_zero_draft_deg_does_not_warn():
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        TrayParams(draft_deg=0.0)
+
+
+def test_guard7_lip_h_zero_raises():
+    with pytest.raises(ValueError, match="lip_h"):
+        TrayParams(lip_h=0.0)
+
+
+def test_guard7_lip_h_negative_raises():
+    with pytest.raises(ValueError, match="lip_h"):
+        TrayParams(lip_h=-1.0)
+
+
+def test_guard7_flange_t_zero_raises():
+    with pytest.raises(ValueError, match="flange_t"):
+        TrayParams(flange_t=0.0)
+
+
+def test_guard7_flange_t_negative_raises():
+    with pytest.raises(ValueError, match="flange_t"):
+        TrayParams(flange_t=-1.0)
+
+
+def test_guard8_nozzle_negative_raises():
+    with pytest.raises(ValueError, match="nozzle"):
+        TrayParams(nozzle=-0.1)
+
+
+def test_guard8_nozzle_zero_is_allowed():
+    p = TrayParams(nozzle=0.0)
+    assert p.nozzle == 0.0
+
+
+def test_guard8_cell_fillet_negative_raises():
+    with pytest.raises(ValueError, match="cell_fillet"):
+        TrayParams(cell_fillet=-1.0)
+
+
+def test_guard8_cell_fillet_zero_is_allowed():
+    p = TrayParams(cell_fillet=0.0)
+    assert p.cell_fillet == 0.0
