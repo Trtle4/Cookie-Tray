@@ -135,6 +135,58 @@ def trough_neg(
     return neg
 
 
+def build_product(
+    product_type: str,
+    *,
+    diameter: float | None = None,
+    thickness: float | None = None,
+    width: float | None = None,
+    height: float | None = None,
+    edge_r_top: float = 0.0,
+    edge_r_bot: float = 0.0,
+) -> cq.Workplane:
+    """Build a single product unit as a real, exportable solid -- a round
+    cylinder or a rounded-edge rectangular block -- never fused into the
+    tray. This is the standalone-export counterpart to the always
+    viz-only three.js overlay (``web/src/fill.js`` draws the identical
+    rectangle profile, display only).
+
+    Both shapes extrude along X (the channel axis), matching the fill
+    overlay's convention, so ``thickness`` (the pack pitch along the
+    channel) is the depth along X.
+
+    Rectangle corner rounding is done by filleting the SOLID's own X-parallel
+    edges (top pair at ``edge_r_top``, bottom pair at ``edge_r_bot``) rather
+    than pre-rounding a 2D profile: a 2D sketch's vertex-selector fillet
+    does not reliably discriminate top from bottom (verified empirically --
+    it silently fillets all four corners at whichever radius was applied
+    last), while edge selectors on the real extruded solid do.
+    """
+    if product_type == "round":
+        if diameter is None or thickness is None:
+            raise ValueError("round product requires diameter and thickness")
+        return cq.Workplane("YZ").circle(diameter / 2.0).extrude(thickness)
+
+    if product_type == "rectangle":
+        if width is None or height is None or thickness is None:
+            raise ValueError("rectangle product requires width, height, and thickness")
+        # -0.01 safety margin (same convention as rrect()): a fillet radius
+        # exactly equal to half the shape's own smaller dimension is
+        # geometrically degenerate (OCC: "BRep_API: command not done").
+        max_r = max(0.0, min(width, height) / 2.0 - 0.01)
+        rt = min(max(edge_r_top, 0.0), max_r)
+        rb = min(max(edge_r_bot, 0.0), max_r)
+
+        part = cq.Workplane("YZ").rect(width, height).extrude(thickness)
+        if rt > 1e-9:
+            part = part.edges("|X").edges(">Z").fillet(rt)
+        if rb > 1e-9:
+            part = part.edges("|X").edges("<Z").fillet(rb)
+        return part
+
+    raise ValueError(f'product_type must be "round" or "rectangle", got {product_type!r}')
+
+
 def build_tray(params: TrayParams) -> cq.Workplane:
     """Build the tray solid for the given :class:`TrayParams`.
 

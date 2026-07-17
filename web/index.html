@@ -22,9 +22,15 @@
         </div>
         <div class="spacer"></div>
         <span id="build-status"><span class="dot"></span><span id="build-status-text">Loading...</span></span>
-        <div id="export-buttons">
-          <button id="download-stl" class="btn primary" disabled><span class="ic">&#8595;</span><span class="btn-label-full">Export </span>STL</button>
-          <button id="download-step" class="btn" disabled><span class="ic">&#8595;</span><span class="btn-label-full">Export </span>STEP</button>
+        <div id="export-control">
+          <div class="seg" id="export-target-seg">
+            <button type="button" class="seg-btn on" data-seg-value="tray">Tray</button>
+            <button type="button" class="seg-btn" data-seg-value="product" id="export-target-product-btn" disabled>Product</button>
+          </div>
+          <div id="export-buttons">
+            <button id="download-stl" class="btn primary" disabled><span class="ic">&#8595;</span><span class="btn-label-full">Export </span>STL</button>
+            <button id="download-step" class="btn" disabled><span class="ic">&#8595;</span><span class="btn-label-full">Export </span>STEP</button>
+          </div>
         </div>
       </header>
       <main>

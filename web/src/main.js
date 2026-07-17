@@ -15,6 +15,8 @@ const els = {
   status: document.getElementById("status-overlay"),
   downloadStl: document.getElementById("download-stl"),
   downloadStep: document.getElementById("download-step"),
+  exportTargetSeg: document.getElementById("export-target-seg"),
+  exportTargetProductBtn: document.getElementById("export-target-product-btn"),
   fillToggle: document.getElementById("fill-toggle"),
   fillLabel: document.getElementById("fill-toggle-label"),
   canvas: document.getElementById("three-canvas"),
@@ -90,6 +92,41 @@ let hasEverBuilt = false; // true once any build has ever succeeded -- lets a
 // later build FAILURE keep exporting that still-valid previous shape
 // instead of stranding it behind disabled buttons (worker.js keeps
 // currentShape pointed at the last success on failure; see build()).
+let buildExportable = false; // mirrors the tray download buttons' enabled condition
+let exportTarget = "tray"; // "tray" | "product" -- which solid the format buttons act on
+
+/** Sync the target seg buttons + STL/STEP button disabled state from
+ * `buildExportable` (tray build validity, unchanged meaning) and whether a
+ * product is currently configured. Falls back to "tray" if the product
+ * target becomes unavailable while selected. */
+function refreshExportButtons() {
+  const productAvailable = !!lastFillSpec;
+  if (els.exportTargetProductBtn) els.exportTargetProductBtn.disabled = !productAvailable;
+  if (!productAvailable && exportTarget === "product") {
+    exportTarget = "tray";
+    for (const b of els.exportTargetSeg.querySelectorAll(".seg-btn")) {
+      b.classList.toggle("on", b.dataset.segValue === "tray");
+    }
+  }
+  const exportable = exportTarget === "product" ? buildExportable && productAvailable : buildExportable;
+  els.downloadStl.disabled = !exportable;
+  els.downloadStep.disabled = !exportable;
+}
+
+function setExportTarget(target) {
+  exportTarget = target;
+  for (const b of els.exportTargetSeg.querySelectorAll(".seg-btn")) {
+    b.classList.toggle("on", b.dataset.segValue === target);
+  }
+  refreshExportButtons();
+}
+
+for (const btn of els.exportTargetSeg.querySelectorAll(".seg-btn")) {
+  btn.addEventListener("click", () => {
+    if (btn.disabled) return;
+    setExportTarget(btn.dataset.segValue);
+  });
+}
 
 function setStatus(text) {
   els.status.textContent = text;
@@ -466,6 +503,42 @@ function filenameFor(params, ext) {
   return `cookietray_${params.nCells}x_${Math.round(params.cellWid)}w_${Math.round(params.cellLen)}l_${Math.round(params.cradleR)}r_${Math.round(params.draftDeg)}d.${ext}`;
 }
 
+/** Trims to at most 2 decimals without forcing trailing zeros (12.70 -> "12.7", 46 -> "46"). */
+function fmtNum(n) {
+  return Number(n.toFixed(2)).toString();
+}
+
+/** `buildProduct(spec)`-shaped input derived from the configured product
+ * (lastFillSpec), or null if none is configured. lastFillSpec is only ever
+ * set from a successful suggestFromProduct() call (see
+ * applyProductSuggestions), which already validated that diameter/thickness
+ * or width/height/thickness are all > 0. */
+function productSpecForExport() {
+  if (!lastFillSpec) return null;
+  if (lastFillSpec.productType === "rectangle") {
+    return {
+      productType: "rectangle",
+      width: lastFillSpec.productWidth,
+      height: lastFillSpec.productHeight,
+      thickness: lastFillSpec.productThickness,
+      edgeRTop: lastFillSpec.edgeRTop,
+      edgeRBot: lastFillSpec.edgeRBot,
+    };
+  }
+  return {
+    productType: "round",
+    diameter: lastFillSpec.cookieDiameter,
+    thickness: lastFillSpec.cookieThickness,
+  };
+}
+
+function filenameForProduct(fillSpec, ext) {
+  if (fillSpec.productType === "rectangle") {
+    return `cookieproduct_${fmtNum(fillSpec.productWidth)}x${fmtNum(fillSpec.productHeight)}x${fmtNum(fillSpec.productThickness)}.${ext}`;
+  }
+  return `cookieproduct_d${fmtNum(fillSpec.cookieDiameter)}x${fmtNum(fillSpec.cookieThickness)}.${ext}`;
+}
+
 async function rebuild() {
   const result = makeTrayParams(readTrayInput());
   const fitWarnings = checkProductFit(result.params, lastFillSpec);
@@ -480,8 +553,8 @@ async function rebuild() {
   if (!result.valid) {
     lastValidParams = null;
     lastDerived = null;
-    els.downloadStl.disabled = true;
-    els.downloadStep.disabled = true;
+    buildExportable = false;
+    refreshExportButtons();
     els.fillToggle.disabled = true;
     viewer.setFillGroup(null);
     setViewportStale(true);
@@ -501,8 +574,8 @@ async function rebuild() {
   const token = ++buildToken;
   setStatus("Building...");
   setBuildStatus("building", "Building...");
-  els.downloadStl.disabled = true;
-  els.downloadStep.disabled = true;
+  buildExportable = false;
+  refreshExportButtons();
   try {
     const { mesh, edges } = await api.build(lastValidParams);
     if (token !== buildToken) return; // a newer build superseded this one
@@ -510,8 +583,8 @@ async function rebuild() {
     updateFillOverlay();
     if (els.sectionToggle.checked) updateSectionPlane();
     hasEverBuilt = true;
-    els.downloadStl.disabled = false;
-    els.downloadStep.disabled = false;
+    buildExportable = true;
+    refreshExportButtons();
     setViewportStale(false);
     setStatus("");
     setBuildStatus("ready", "Ready to export");
@@ -525,9 +598,9 @@ async function rebuild() {
     // legitimate export candidate -- don't strand it behind disabled
     // buttons just because THIS build attempt threw.
     if (hasEverBuilt) {
-      els.downloadStl.disabled = false;
-      els.downloadStep.disabled = false;
+      buildExportable = true;
     }
+    refreshExportButtons();
     setViewportStale(true);
     setBuildStatus("error", "Build failed");
   }
@@ -673,17 +746,33 @@ function downloadBlob(blob, filename) {
   URL.revokeObjectURL(url);
 }
 
-els.downloadStl.addEventListener("click", async () => {
-  if (!lastValidParams) return;
-  const blob = await api.exportSTL();
-  downloadBlob(blob, filenameFor(lastValidParams, "stl"));
-});
+async function handleExport(ext) {
+  if (exportTarget === "product") {
+    const spec = productSpecForExport();
+    if (!spec) return;
+    try {
+      await api.buildProduct(spec);
+      const blob = ext === "stl" ? await api.exportProductSTL() : await api.exportProductSTEP();
+      downloadBlob(blob, filenameForProduct(lastFillSpec, ext));
+    } catch (err) {
+      setStatus(`Product export failed: ${err.message}`);
+      setTimeout(() => setStatus(""), 4000);
+    }
+    return;
+  }
 
-els.downloadStep.addEventListener("click", async () => {
   if (!lastValidParams) return;
-  const blob = await api.exportSTEP();
-  downloadBlob(blob, filenameFor(lastValidParams, "step"));
-});
+  try {
+    const blob = ext === "stl" ? await api.exportSTL() : await api.exportSTEP();
+    downloadBlob(blob, filenameFor(lastValidParams, ext));
+  } catch (err) {
+    setStatus(`Export failed: ${err.message}`);
+    setTimeout(() => setStatus(""), 4000);
+  }
+}
+
+els.downloadStl.addEventListener("click", () => handleExport("stl"));
+els.downloadStep.addEventListener("click", () => handleExport("step"));
 
 setStatus("Loading OpenCASCADE...");
 setBuildStatus("building", "Loading...");
@@ -707,4 +796,6 @@ window.__cookieTray = {
   get lastValidParams() { return lastValidParams; },
   get lastFillSpec() { return lastFillSpec; },
   get lastDerived() { return lastDerived; },
+  get exportTarget() { return exportTarget; },
+  setExportTarget,
 };

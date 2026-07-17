@@ -33,7 +33,7 @@
  *    fillet resolves as a side effect — see the cellFillet floor below.
  */
 
-import { drawRoundedRectangle, drawCircle } from "replicad";
+import { drawRoundedRectangle, drawRectangle, drawCircle } from "replicad";
 
 import { MIN_WALL } from "./params.js";
 
@@ -41,6 +41,62 @@ import { MIN_WALL } from "./params.js";
 function rrectSketch(L, W, r, z = 0, plane = "XY") {
   const rr = Math.max(Math.min(r, Math.min(L, W) / 2 - 0.01), 0.4);
   return drawRoundedRectangle(L, W, rr).sketchOnPlane(plane, z);
+}
+
+/**
+ * Build a single product unit as a real, exportable solid -- a round
+ * cylinder or a rounded-edge rectangular block -- never fused into the
+ * tray. Standalone-export counterpart to the always viz-only three.js
+ * overlay (fill.js draws the identical rectangle profile, display only).
+ *
+ * Both shapes extrude along X (the channel axis), matching the fill
+ * overlay's convention, so `thickness` (the pack pitch along the channel)
+ * is the depth along X.
+ *
+ * Rectangle corner rounding fillets the SOLID's own X-parallel edges (top
+ * pair at edgeRTop, bottom pair at edgeRBot) rather than pre-rounding the
+ * 2D profile -- mirrors cookie_tray/geometry.py's build_product, where the
+ * same edge-selector approach was verified (against a hand-derived volume
+ * formula) to be the one that actually discriminates top from bottom.
+ */
+export function buildProduct(spec) {
+  const { productType } = spec;
+
+  if (productType === "round") {
+    const { diameter, thickness } = spec;
+    if (!(diameter > 0) || !(thickness > 0)) {
+      throw new Error("round product requires diameter and thickness");
+    }
+    return drawCircle(diameter / 2).sketchOnPlane("YZ").extrude(thickness);
+  }
+
+  if (productType === "rectangle") {
+    const { width, height, thickness, edgeRTop = 0, edgeRBot = 0 } = spec;
+    if (!(width > 0) || !(height > 0) || !(thickness > 0)) {
+      throw new Error("rectangle product requires width, height, and thickness");
+    }
+    // -0.01 safety margin (same convention as rrectSketch): a fillet radius
+    // exactly equal to half the shape's own smaller dimension is
+    // geometrically degenerate.
+    const maxR = Math.max(0, Math.min(width, height) / 2 - 0.01);
+    const rt = Math.min(Math.max(edgeRTop, 0), maxR);
+    const rb = Math.min(Math.max(edgeRBot, 0), maxR);
+
+    let part = drawRectangle(width, height).sketchOnPlane("YZ").extrude(thickness);
+    if (rt > 1e-9) {
+      part = part.fillet(rt, (e) =>
+        e.inDirection([1, 0, 0]).when(({ element }) => element.startPoint.z > 0)
+      );
+    }
+    if (rb > 1e-9) {
+      part = part.fillet(rb, (e) =>
+        e.inDirection([1, 0, 0]).when(({ element }) => element.startPoint.z < 0)
+      );
+    }
+    return part;
+  }
+
+  throw new Error(`product_type must be "round" or "rectangle", got ${JSON.stringify(productType)}`);
 }
 
 /**

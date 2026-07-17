@@ -1,7 +1,9 @@
+import math
+
 import pytest
 import trimesh
 
-from cookie_tray.geometry import build_tray, export
+from cookie_tray.geometry import build_product, build_tray, export
 from cookie_tray.params import MIN_WALL, TrayParams
 
 
@@ -16,6 +18,73 @@ def _mesh_for(params: TrayParams, stem: str, tmp_path):
 def _assert_watertight_genus0(mesh):
     assert mesh.is_watertight
     assert mesh.euler_number == 2  # closed, genus 0, no through-holes
+
+
+def _mesh_for_product(part, stem: str, tmp_path):
+    assert part.val().isValid()
+    _, stl_path = export(part, stem, out_dir=str(tmp_path))
+    return trimesh.load(stl_path)
+
+
+def test_build_product_round_is_watertight(tmp_path):
+    part = build_product("round", diameter=46.0, thickness=12.7)
+    mesh = _mesh_for_product(part, "round_product", tmp_path)
+    _assert_watertight_genus0(mesh)
+    assert mesh.bounds[:, 0] == pytest.approx([0.0, 12.7], abs=1e-6)  # X = thickness depth
+    assert mesh.bounds[0, 1] == pytest.approx(-23.0, abs=1e-6)  # Y = -radius
+    assert mesh.bounds[1, 1] == pytest.approx(23.0, abs=1e-6)
+
+
+def test_build_product_round_volume_matches_cylinder():
+    part = build_product("round", diameter=46.0, thickness=12.7)
+    expected = math.pi * (46.0 / 2) ** 2 * 12.7
+    assert part.val().Volume() == pytest.approx(expected, rel=1e-6)
+
+
+def test_build_product_rectangle_is_watertight(tmp_path):
+    part = build_product("rectangle", width=60.0, height=20.0, thickness=12.0, edge_r_top=6.0, edge_r_bot=1.0)
+    mesh = _mesh_for_product(part, "rect_product", tmp_path)
+    _assert_watertight_genus0(mesh)
+
+
+def test_build_product_rectangle_unequal_radii_volume():
+    # Independently verified against the vertex-fillet ground truth and a
+    # hand-derived formula (see geometry.py's build_product docstring for
+    # why edges-on-the-solid, not a 2D sketch, are the right approach).
+    width, height, thickness = 60.0, 20.0, 12.0
+    rt, rb = 6.0, 1.0
+    part = build_product("rectangle", width=width, height=height, thickness=thickness, edge_r_top=rt, edge_r_bot=rb)
+    removed = thickness * (2 * rt**2 * (1 - math.pi / 4) + 2 * rb**2 * (1 - math.pi / 4))
+    expected = width * height * thickness - removed
+    assert part.val().Volume() == pytest.approx(expected, rel=1e-6)
+
+
+def test_build_product_rectangle_zero_radius_stays_sharp():
+    part = build_product("rectangle", width=60.0, height=20.0, thickness=12.0, edge_r_top=0.0, edge_r_bot=0.0)
+    assert part.val().Volume() == pytest.approx(60.0 * 20.0 * 12.0, rel=1e-6)
+
+
+def test_build_product_rectangle_radius_clamped_to_half_min_dimension():
+    # A radius request larger than the shape can support clamps rather than
+    # erroring -- mirrors the "clamp for geometric validity" rule the
+    # cell_fillet guard uses.
+    part = build_product("rectangle", width=10.0, height=20.0, thickness=5.0, edge_r_top=999.0, edge_r_bot=999.0)
+    assert part.val().isValid()
+
+
+def test_build_product_invalid_type_raises():
+    with pytest.raises(ValueError, match="product_type"):
+        build_product("triangle", diameter=10, thickness=5)
+
+
+def test_build_product_round_missing_args_raises():
+    with pytest.raises(ValueError, match="round product"):
+        build_product("round", diameter=10)
+
+
+def test_build_product_rectangle_missing_args_raises():
+    with pytest.raises(ValueError, match="rectangle product"):
+        build_product("rectangle", width=10, height=5)
 
 
 def test_build_single_cell(tmp_path):

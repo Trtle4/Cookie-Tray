@@ -143,6 +143,28 @@ input,
   color: var(--ink-2);
 }
 
+#export-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+#export-target-seg {
+  width: auto;
+  min-width: 132px;
+}
+
+#export-target-seg .seg-btn {
+  padding: 6px 12px;
+  min-height: 32px;
+}
+
+#export-target-seg .seg-btn:disabled {
+  cursor: not-allowed;
+  color: var(--ink-3);
+  opacity: 0.55;
+}
+
 #export-buttons {
   display: flex;
   align-items: center;
@@ -870,6 +892,22 @@ main {
     margin-right: auto;
   }
 
+  #export-control {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  #export-target-seg {
+    width: 100%;
+    min-width: 0;
+  }
+
+  #export-target-seg .seg-btn {
+    min-height: 44px;
+  }
+
   #export-buttons {
     width: 100%;
     gap: 8px;
@@ -880,6 +918,7 @@ main {
     justify-content: center;
     padding: 9px 8px;
     font-size: 12.5px;
+    min-height: 44px;
   }
 
   /* "Export " prefix drops on narrow screens; the icon + STL/STEP still

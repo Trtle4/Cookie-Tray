@@ -9,7 +9,7 @@ import opencascadeWasm from "replicad-opencascadejs/src/replicad_single.wasm?url
 import { setOC } from "replicad";
 import { expose } from "comlink";
 
-import { buildTray } from "./geometry.js";
+import { buildTray, buildProduct } from "./geometry.js";
 
 let readyPromise = null;
 function init() {
@@ -58,6 +58,33 @@ async function exportSTEP() {
   return currentShape.blobSTEP();
 }
 
+let currentProductShape = null;
+
+/** Build a single product unit (never fused into the tray) for standalone export. */
+async function buildProductSolid(spec) {
+  await init();
+  const newShape = buildProduct(spec);
+  if (currentProductShape) {
+    try {
+      currentProductShape.delete();
+    } catch {
+      // already freed
+    }
+  }
+  currentProductShape = newShape;
+  return true;
+}
+
+async function exportProductSTL() {
+  if (!currentProductShape) throw new Error("No product built yet");
+  return currentProductShape.blobSTL();
+}
+
+async function exportProductSTEP() {
+  if (!currentProductShape) throw new Error("No product built yet");
+  return currentProductShape.blobSTEP();
+}
+
 /** Milestone/self-test helper: build+mesh+STEP a plain box, no tray geometry involved. */
 async function selfTest() {
   await init();
@@ -75,4 +102,13 @@ async function selfTest() {
   };
 }
 
-expose({ init, build, exportSTL, exportSTEP, selfTest });
+expose({
+  init,
+  build,
+  exportSTL,
+  exportSTEP,
+  buildProduct: buildProductSolid,
+  exportProductSTL,
+  exportProductSTEP,
+  selfTest,
+});
