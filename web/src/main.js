@@ -12,7 +12,6 @@ const els = {
   trayForm: document.getElementById("tray-form"),
   productForm: document.getElementById("product-form"),
   messages: document.getElementById("messages"),
-  summary: document.getElementById("derived-summary"),
   status: document.getElementById("status-overlay"),
   downloadStl: document.getElementById("download-stl"),
   downloadStep: document.getElementById("download-step"),
@@ -29,9 +28,51 @@ const els = {
   sectionToggle: document.getElementById("section-toggle"),
   sectionAxis: document.getElementById("section-axis"),
   sectionSlider: document.getElementById("section-slider"),
+  // reskin: header status, segmented toggles, title-block, dimension overlay
+  buildStatus: document.getElementById("build-status"),
+  buildStatusText: document.getElementById("build-status-text"),
+  productTypeSeg: document.getElementById("product-type-seg"),
+  distributeBySeg: document.getElementById("distribute-by-seg"),
+  longAxisSeg: document.getElementById("long-axis-seg"),
+  dimsToggle: document.getElementById("dims-toggle"),
+  fitBtn: document.getElementById("fit-btn"),
+  dimsOverlay: document.getElementById("dims-overlay"),
+  titleblock: document.getElementById("titleblock"),
+  tbTitle: document.getElementById("tb-title"),
+  tbCells: document.getElementById("tb-cells"),
+  tbRows: document.getElementById("tb-rows"),
+  viewChip: document.getElementById("view-chip"),
+  msTitle: document.getElementById("ms-title"),
+  msReady: document.getElementById("ms-ready"),
+  msGrid: document.getElementById("ms-grid"),
 };
 
 const viewer = new Viewer(els.canvas);
+
+// ---- Segmented toggles: presentational buttons driving the real (visually
+// hidden) <select> each is paired with, so field name/value/validation
+// logic is completely untouched -- these just make the existing selects
+// look/feel like a segmented control. ----
+function wireSegment(container, selectEl) {
+  const buttons = container.querySelectorAll(".seg-btn");
+  const syncFromSelect = () => {
+    for (const b of buttons) b.classList.toggle("on", b.dataset.segValue === selectEl.value);
+  };
+  for (const b of buttons) {
+    b.addEventListener("click", () => {
+      if (selectEl.value === b.dataset.segValue) return;
+      selectEl.value = b.dataset.segValue;
+      selectEl.dispatchEvent(new Event("change", { bubbles: true }));
+      syncFromSelect();
+    });
+  }
+  selectEl.addEventListener("change", syncFromSelect);
+  syncFromSelect();
+}
+
+wireSegment(els.productTypeSeg, els.productType);
+wireSegment(els.distributeBySeg, els.distributeBy);
+wireSegment(els.longAxisSeg, els.trayForm.elements.longAxis);
 
 // Tray fields the product section can suggest a value for. If the user has
 // edited one of these directly, their value wins — the product section
@@ -41,6 +82,7 @@ const userTouched = new Set();
 let sectionAxisTouched = false;
 
 let lastValidParams = null; // §3 input-shaped params, ready for buildTray
+let lastDerived = null; // makeTrayParams(...).derived for lastValidParams -- feeds the title-block + dimension overlay
 let lastFillSpec = null; // { cookiesPerCell, cookieDiameter, cookieThickness, endClearance } | null
 let debounceTimer = null;
 let buildToken = 0;
@@ -96,9 +138,30 @@ els.trayForm.addEventListener("input", (event) => {
 els.fillToggle.addEventListener("change", updateFillOverlay);
 
 // ---- Camera view buttons ----
-for (const btn of els.cameraButtons) {
-  btn.addEventListener("click", () => viewer.setCameraView(btn.dataset.view));
+const VIEW_LABELS = { iso: "Iso", top: "Top", bottom: "Bottom", front: "Front", side: "Side" };
+let currentView = "iso";
+
+function setActiveView(view) {
+  currentView = view;
+  for (const btn of els.cameraButtons) btn.classList.toggle("on", btn.dataset.view === view);
+  if (els.viewChip) els.viewChip.textContent = `${VIEW_LABELS[view] || view} view · mm`;
 }
+
+for (const btn of els.cameraButtons) {
+  btn.addEventListener("click", () => {
+    viewer.setCameraView(btn.dataset.view);
+    setActiveView(btn.dataset.view);
+  });
+}
+setActiveView(currentView);
+
+els.fitBtn?.addEventListener("click", () => viewer.setCameraView(currentView));
+
+// ---- Dimension-callout overlay toggle ----
+els.dimsToggle?.addEventListener("change", () => {
+  els.dimsOverlay.classList.toggle("hidden", !els.dimsToggle.checked);
+});
+els.dimsOverlay?.classList.toggle("hidden", !els.dimsToggle?.checked);
 
 // ---- Cross-section controls ----
 function updateSectionPlane() {
@@ -241,6 +304,7 @@ function applyProductSuggestions() {
       edgeRTop: productInput.edgeRTop,
       edgeRBot: productInput.edgeRBot,
       endClearance: 3.0,
+      qtyTotal: productInput.qtyTotal,
     };
   } else {
     lastFillSpec = null;
@@ -315,25 +379,87 @@ function checkProductFit(params, fillSpec) {
   return warnings;
 }
 
+/** Non-blocking advisory: a cell_fillet large enough to eat most of the
+ * product's own side clearance can visually intrude on the product near
+ * the cell's rounded corners (the fillet rounds the trough's full-height
+ * plan-view corners, and the first/last product in a row sits closest to
+ * them). This is separate from geometric validity -- cell_fillet itself is
+ * always silently clamped to a safe max in params.py/js so the SOLID stays
+ * valid; this only flags when the (still-valid) fillet the user chose may
+ * visually eat into the product they've configured. Pure/local: does not
+ * touch TrayParams. */
+function checkFilletProductConflict(params, fillSpec) {
+  if (!fillSpec || !(params.cellFillet > 0)) return [];
+  const isRect = fillSpec.productType === "rectangle";
+  const crossWidth = isRect ? fillSpec.productWidth : fillSpec.cookieDiameter;
+  if (!(crossWidth > 0)) return [];
+
+  const sideClearance = (params.cellWid - crossWidth) / 2;
+  if (sideClearance < params.cellFillet) {
+    return [
+      `Cell fillet (${params.cellFillet.toFixed(1)}mm) may intrude on the product near the cell corners ` +
+        `(only ${sideClearance.toFixed(1)}mm of side clearance). Consider a smaller cell_fillet or a wider cell.`,
+    ];
+  }
+  return [];
+}
+
 /** Dim the 3D view when the displayed shape no longer corresponds to the
  * current form input (guards reject it, or the last build attempt threw). */
 function setViewportStale(stale) {
   els.canvas.classList.toggle("stale", stale);
 }
 
-function renderSummary(derived) {
-  if (!derived) {
-    els.summary.innerHTML = "";
+/** A short human-readable description of the configured product, for the
+ * title-block's "Product" row. */
+function productSummaryText(fillSpec) {
+  if (!fillSpec) return "—";
+  const qty = fillSpec.qtyTotal != null && Number.isFinite(fillSpec.qtyTotal) ? ` · ${fillSpec.qtyTotal} pcs` : "";
+  if (fillSpec.productType === "rectangle") {
+    return `${fillSpec.productWidth}×${fillSpec.productHeight}mm rect${qty}`;
+  }
+  return `⌀${fillSpec.cookieDiameter}mm round${qty}`;
+}
+
+/** Engineering title-block: the derived readouts (footprint, overall H,
+ * product, cradle R, nozzle), rendered both as the floating desktop corner
+ * panel and the static mobile spec panel below the viewport -- same data,
+ * same source of truth, CSS decides which is visible at which width. */
+function renderTitleblock(derived, params) {
+  if (!derived || !params) {
+    els.tbRows.innerHTML = "";
+    els.msGrid.innerHTML = "";
+    els.tbCells.textContent = "";
+    els.msTitle.textContent = "Cookie Tray";
     return;
   }
+
+  els.tbCells.textContent = `${params.nCells}-CELL`;
+  els.msTitle.textContent = `Cookie Tray · ${params.nCells}-cell`;
+
   const rows = [
-    ["Top L x W", `${derived.topL.toFixed(1)} x ${derived.topW.toFixed(1)} mm`],
-    ["Overall height", `${derived.overallH.toFixed(1)} mm`],
-    ["Outer footprint", `${derived.outerL.toFixed(1)} x ${derived.outerW.toFixed(1)} mm`],
-    ["Footprint area", `${(derived.footprint / 100).toFixed(1)} cm^2`],
-    ["Cell pitch", `${derived.pitch.toFixed(1)} mm`],
+    ["Footprint", `${derived.outerL.toFixed(1)} × ${derived.outerW.toFixed(1)} mm`, true],
+    ["Overall H", `${derived.overallH.toFixed(1)} mm`, false],
+    ["Product", productSummaryText(lastFillSpec), false],
+    ["Cradle R", `${params.cradleR.toFixed(1)} mm`, false],
+    ["Nozzle", `${params.nozzle} mm`, false],
   ];
-  els.summary.innerHTML = rows.map(([k, v]) => `<div><strong>${k}:</strong> ${v}</div>`).join("");
+
+  els.tbRows.innerHTML = rows
+    .map(([k, v, bold]) => `<div class="tbrow"><div class="k">${k}</div><div class="v">${bold ? `<b>${v}</b>` : v}</div></div>`)
+    .join("");
+  els.msGrid.innerHTML = rows.map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join("");
+}
+
+/** Header + mobile "ready to export" indicator. */
+function setBuildStatus(state, text) {
+  els.buildStatus.classList.toggle("building", state === "building");
+  els.buildStatus.classList.toggle("error", state === "error");
+  els.buildStatusText.textContent = text;
+  if (els.msReady) {
+    els.msReady.textContent = text;
+    els.msReady.classList.toggle("error", state === "error");
+  }
 }
 
 function filenameFor(params, ext) {
@@ -343,23 +469,28 @@ function filenameFor(params, ext) {
 async function rebuild() {
   const result = makeTrayParams(readTrayInput());
   const fitWarnings = checkProductFit(result.params, lastFillSpec);
+  const filletWarnings = checkFilletProductConflict(result.params, lastFillSpec);
+  const advisories = [...(result.warnings || []), ...fitWarnings, ...filletWarnings];
 
-  renderMessages(result.errors, [...(result.warnings || []), ...fitWarnings]);
+  renderMessages(result.errors, advisories);
   markInvalidFields(result.errors);
-  renderSummary(result.derived);
+  renderTitleblock(result.derived, result.params);
   if (result.derived) refreshPitchDisplay();
 
   if (!result.valid) {
     lastValidParams = null;
+    lastDerived = null;
     els.downloadStl.disabled = true;
     els.downloadStep.disabled = true;
     els.fillToggle.disabled = true;
     viewer.setFillGroup(null);
     setViewportStale(true);
+    setBuildStatus("error", "Blocked");
     return;
   }
 
   lastValidParams = inputOnly(result.params);
+  lastDerived = result.derived;
   els.fillToggle.disabled = !lastFillSpec;
   if (!lastFillSpec) els.fillToggle.checked = false;
 
@@ -369,6 +500,7 @@ async function rebuild() {
 
   const token = ++buildToken;
   setStatus("Building...");
+  setBuildStatus("building", "Building...");
   els.downloadStl.disabled = true;
   els.downloadStep.disabled = true;
   try {
@@ -382,10 +514,11 @@ async function rebuild() {
     els.downloadStep.disabled = false;
     setViewportStale(false);
     setStatus("");
+    setBuildStatus("ready", "Ready to export");
   } catch (err) {
     if (token !== buildToken) return;
     setStatus("");
-    renderMessages([...result.errors, `Build failed: ${err.message}`], [...(result.warnings || []), ...fitWarnings]);
+    renderMessages([...result.errors, `Build failed: ${err.message}`], advisories);
     markInvalidFields(result.errors);
     // The worker keeps its last successfully-built shape intact on a failed
     // build (never deletes-then-fails), so if one exists it's still a
@@ -396,6 +529,7 @@ async function rebuild() {
       els.downloadStep.disabled = false;
     }
     setViewportStale(true);
+    setBuildStatus("error", "Build failed");
   }
 }
 
@@ -407,6 +541,126 @@ function updateFillOverlay() {
     viewer.setFillGroup(null);
   }
 }
+
+// ---- Dimension-callout overlay ----
+// Live technical dimension lines (extension lines + arrowheads) projected
+// from the tray's actual 3D bounding box onto the viewport, showing the
+// same footprint/height numbers as the title-block. Recomputed every frame
+// so they track the camera through orbit/pan/zoom and view-snap animation
+// (an isometric projection means these are never perfectly horizontal or
+// vertical on screen -- that's expected; they follow the true 3D edges).
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+function makeDimGroup() {
+  const g = document.createElementNS(SVG_NS, "g");
+  g.setAttribute("class", "dim-group");
+  const extA = document.createElementNS(SVG_NS, "line");
+  extA.setAttribute("class", "dim-ext");
+  const extB = document.createElementNS(SVG_NS, "line");
+  extB.setAttribute("class", "dim-ext");
+  const line = document.createElementNS(SVG_NS, "line");
+  line.setAttribute("class", "dimline");
+  line.setAttribute("marker-start", "url(#dimArrowStart)");
+  line.setAttribute("marker-end", "url(#dimArrowEnd)");
+  const bg = document.createElementNS(SVG_NS, "rect");
+  bg.setAttribute("class", "dim-label-bg");
+  const text = document.createElementNS(SVG_NS, "text");
+  text.setAttribute("class", "dim");
+  text.setAttribute("text-anchor", "middle");
+  g.append(extA, extB, line, bg, text);
+  return { g, extA, extB, line, bg, text };
+}
+
+function initDimDefs() {
+  if (!els.dimsOverlay) return;
+  const defs = document.createElementNS(SVG_NS, "defs");
+  const addMarker = (id, path, refX) => {
+    const marker = document.createElementNS(SVG_NS, "marker");
+    marker.setAttribute("id", id);
+    marker.setAttribute("markerWidth", "8");
+    marker.setAttribute("markerHeight", "8");
+    marker.setAttribute("refX", refX);
+    marker.setAttribute("refY", "3");
+    marker.setAttribute("orient", "auto");
+    const p = document.createElementNS(SVG_NS, "path");
+    p.setAttribute("d", path);
+    p.setAttribute("fill", "none");
+    p.setAttribute("stroke", "#59656c");
+    p.setAttribute("stroke-width", "1.1");
+    marker.appendChild(p);
+    defs.appendChild(marker);
+  };
+  addMarker("dimArrowEnd", "M0,0 L7,3 L0,6", "6");
+  addMarker("dimArrowStart", "M7,0 L0,3 L7,6", "1");
+  els.dimsOverlay.appendChild(defs);
+}
+initDimDefs();
+
+const dimLength = makeDimGroup();
+const dimWidth = makeDimGroup();
+const dimHeight = makeDimGroup();
+els.dimsOverlay?.append(dimLength.g, dimWidth.g, dimHeight.g);
+
+function updateDimGroup({ extA, extB, line, bg, text }, p1, p2, labelText) {
+  const visible = p1 && p2 && labelText;
+  for (const el of [extA, extB, line, bg, text]) el.setAttribute("opacity", visible ? "1" : "0");
+  if (!visible) return;
+
+  // Short perpendicular extension ticks at each end.
+  const dx = p2.x - p1.x;
+  const dy = p2.y - p1.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const px = (-dy / len) * 6;
+  const py = (dx / len) * 6;
+
+  extA.setAttribute("x1", p1.x - px);
+  extA.setAttribute("y1", p1.y - py);
+  extA.setAttribute("x2", p1.x + px);
+  extA.setAttribute("y2", p1.y + py);
+  extB.setAttribute("x1", p2.x - px);
+  extB.setAttribute("y1", p2.y - py);
+  extB.setAttribute("x2", p2.x + px);
+  extB.setAttribute("y2", p2.y + py);
+
+  line.setAttribute("x1", p1.x);
+  line.setAttribute("y1", p1.y);
+  line.setAttribute("x2", p2.x);
+  line.setAttribute("y2", p2.y);
+
+  const midX = (p1.x + p2.x) / 2;
+  const midY = (p1.y + p2.y) / 2;
+  text.setAttribute("x", midX);
+  text.setAttribute("y", midY + 4);
+  text.textContent = labelText;
+
+  try {
+    const bbox = text.getBBox();
+    bg.setAttribute("x", bbox.x - 4);
+    bg.setAttribute("y", bbox.y - 2);
+    bg.setAttribute("width", bbox.width + 8);
+    bg.setAttribute("height", bbox.height + 4);
+  } catch {
+    // getBBox can throw before the element is actually laid out
+  }
+}
+
+function updateDimsOverlay() {
+  requestAnimationFrame(updateDimsOverlay);
+  if (!els.dimsToggle?.checked || !lastValidParams || !lastDerived) {
+    updateDimGroup(dimLength, null, null, "");
+    updateDimGroup(dimWidth, null, null, "");
+    updateDimGroup(dimHeight, null, null, "");
+    return;
+  }
+  const box = viewer.getTrayBoundingBox();
+  if (!box) return;
+  const p = (x, y, z) => viewer.projectToScreen(x, y, z);
+
+  updateDimGroup(dimLength, p(box.min.x, box.min.y, box.min.z), p(box.max.x, box.min.y, box.min.z), lastDerived.outerL.toFixed(1));
+  updateDimGroup(dimWidth, p(box.max.x, box.min.y, box.min.z), p(box.max.x, box.max.y, box.min.z), lastDerived.outerW.toFixed(1));
+  updateDimGroup(dimHeight, p(box.max.x, box.max.y, box.min.z), p(box.max.x, box.max.y, box.max.z), lastDerived.overallH.toFixed(1));
+}
+updateDimsOverlay();
 
 function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
@@ -432,6 +686,7 @@ els.downloadStep.addEventListener("click", async () => {
 });
 
 setStatus("Loading OpenCASCADE...");
+setBuildStatus("building", "Loading...");
 api
   .init()
   .then(() => {
@@ -440,6 +695,7 @@ api
   })
   .catch((err) => {
     setStatus(`Failed to load OpenCASCADE: ${err.message}`);
+    setBuildStatus("error", "Load failed");
   });
 
 // Exposed for automated/browser testing.
@@ -450,4 +706,5 @@ window.__cookieTray = {
   userTouched,
   get lastValidParams() { return lastValidParams; },
   get lastFillSpec() { return lastFillSpec; },
+  get lastDerived() { return lastDerived; },
 };

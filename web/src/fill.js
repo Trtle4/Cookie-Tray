@@ -4,13 +4,19 @@
  * rectangular product, packed face-to-face down each channel) at true size
  * so overflow visibly means "doesn't fit."
  *
- * Every product's LOWEST point rests exactly at the cell floor (z = floor),
- * independent of cradle_r — a rounded cradle bottom that is tighter or
- * looser than the product's own cross-section must not make it float or
- * sink relative to the actual resting surface.
+ * Every product rests on the cell floor (z = floor), independent of
+ * cradle_r — a rounded cradle bottom that is tighter or looser than the
+ * product's own cross-section must not make it float or sink relative to
+ * the actual resting surface. Lifted by RESTING_EPS (a few hundredths of a
+ * mm — imperceptible) above exact floor contact so the product surface is
+ * never exactly coincident with the cradle surface, which otherwise
+ * z-fights/flickers wherever the two are geometrically tangent (most
+ * visibly when cradle_r matches the product's own radius, the common case).
  */
 
 import * as THREE from "three";
+
+const RESTING_EPS = 0.05; // mm -- a hair off the cradle surface, kills z-fighting
 
 /** 2D rounded-rectangle profile (in the shape's local X/Y), independent
  * top-corner and bottom-corner radii, centered at the origin. */
@@ -81,22 +87,28 @@ export function buildFillGroup({
   const topW = nCells * cellWid + 2 * wall + (nCells - 1) * divider;
 
   const group = new THREE.Group();
+  // Solid/opaque (not translucent): overlapping products and the cradle
+  // surface previously caused z-fighting/sorting artifacts under three.js's
+  // per-object transparent-pass sorting. Fully opaque routes rendering
+  // through the normal per-pixel depth-tested pass instead, which resolves
+  // overlapping geometry correctly regardless of draw order.
   const material = new THREE.MeshStandardMaterial({
     color: 0xd4a76a,
-    transparent: true,
-    opacity: 0.55,
+    transparent: false,
+    opacity: 1,
     roughness: 0.6,
     side: THREE.DoubleSide,
+    depthWrite: true,
   });
 
   let geometry, packPitch, centerZOffset;
   if (productType === "rectangle") {
     packPitch = productThickness;
-    centerZOffset = productHeight / 2; // bottom face at floor -> center_z = floor + height/2
+    centerZOffset = productHeight / 2 + RESTING_EPS; // bottom face at floor (+ a hair)
     geometry = rectProductGeometry(productWidth, productHeight, productThickness, edgeRTop, edgeRBot);
   } else {
     packPitch = cookieThickness;
-    centerZOffset = cookieDiameter / 2; // lowest point at floor -> center_z = floor + diameter/2
+    centerZOffset = cookieDiameter / 2 + RESTING_EPS; // lowest point at floor (+ a hair)
     geometry = new THREE.CylinderGeometry(cookieDiameter / 2, cookieDiameter / 2, cookieThickness, 48);
   }
 

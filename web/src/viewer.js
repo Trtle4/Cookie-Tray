@@ -148,7 +148,8 @@ export class Viewer {
   }
 
   /** Snap the camera to a named view (top/bottom/front/side/iso), re-fit to
-   * the current model bounds. Orbit controls stay interactive afterward. */
+   * the current model bounds. Orbit controls stay interactive afterward.
+   * Eases into position (respects prefers-reduced-motion). */
   setCameraView(view) {
     const box = this._combinedBoundingBox();
     if (!box) return;
@@ -182,13 +183,83 @@ export class Viewer {
         break;
     }
 
-    this.camera.up.copy(up);
-    this.camera.position.copy(sphere.center).addScaledVector(dir, dist);
-    this.controls.target.copy(sphere.center);
     this.camera.near = Math.max(dist / 200, 0.1);
     this.camera.far = dist * 20;
     this.camera.updateProjectionMatrix();
-    this.controls.update();
+
+    const targetPos = sphere.center.clone().addScaledVector(dir, dist);
+    this._animateCameraTo(targetPos, sphere.center.clone(), up);
+  }
+
+  /** Ease the camera from its current position/target to a new one over a
+   * short duration (ease-out cubic). Skips straight to the end state when
+   * the user has requested reduced motion. `up` is switched immediately
+   * (interpolating it mid-flight reads as an unwanted roll). */
+  _animateCameraTo(targetPos, targetLookAt, targetUp, duration = 350) {
+    const reduceMotion =
+      typeof window !== "undefined" &&
+      window.matchMedia &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    this.camera.up.copy(targetUp);
+
+    if (reduceMotion) {
+      this.camera.position.copy(targetPos);
+      this.controls.target.copy(targetLookAt);
+      this.controls.update();
+      return;
+    }
+
+    if (this._camAnimFrame) cancelAnimationFrame(this._camAnimFrame);
+    const startPos = this.camera.position.clone();
+    const startTarget = this.controls.target.clone();
+    const t0 = performance.now();
+
+    const step = (now) => {
+      const t = Math.min(1, (now - t0) / duration);
+      const eased = 1 - Math.pow(1 - t, 3);
+      this.camera.position.lerpVectors(startPos, targetPos, eased);
+      this.controls.target.lerpVectors(startTarget, targetLookAt, eased);
+      this.controls.update();
+      this._camAnimFrame = t < 1 ? requestAnimationFrame(step) : null;
+    };
+    this._camAnimFrame = requestAnimationFrame(step);
+  }
+
+  /** Bounding box of the tray SOLID only (not the product-fill overlay) --
+   * used for dimension callouts, which describe the exported tray itself,
+   * not incidentally-oversized product visualization. */
+  getTrayBoundingBox() {
+    this.scene.updateMatrixWorld(true);
+    const box = new THREE.Box3();
+    let has = false;
+    this.meshGroup.traverse((child) => {
+      if (!child.geometry) return;
+      child.geometry.computeBoundingBox();
+      if (!child.geometry.boundingBox) return;
+      const b = child.geometry.boundingBox.clone();
+      b.applyMatrix4(child.matrixWorld);
+      if (!has) {
+        box.copy(b);
+        has = true;
+      } else {
+        box.union(b);
+      }
+    });
+    return has ? box : null;
+  }
+
+  /** Project a world-space point to CSS-pixel coordinates relative to the
+   * canvas's own bounding rect, for HTML/SVG overlays positioned atop the
+   * WebGL canvas. Returns null if the point projects behind the camera. */
+  projectToScreen(x, y, z) {
+    const v = new THREE.Vector3(x, y, z).project(this.camera);
+    if (v.z > 1) return null;
+    const rect = this.canvas.getBoundingClientRect();
+    return {
+      x: ((v.x + 1) / 2) * rect.width,
+      y: ((1 - v.y) / 2) * rect.height,
+    };
   }
 
   // ---- Cross-section ----

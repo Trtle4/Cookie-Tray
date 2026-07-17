@@ -116,17 +116,18 @@ class TrayParams:
                 "otherwise the lip consumes the whole flange strip."
             )
 
-        # Guard 5: cell_wid > 2*cell_fillet and cell_len > 2*cell_fillet.
-        if self.cell_wid <= 2 * self.cell_fillet:
-            raise ValueError(
-                f"cell_wid ({self.cell_wid}) must exceed 2*cell_fillet "
-                f"({2 * self.cell_fillet})"
-            )
-        if self.cell_len <= 2 * self.cell_fillet:
-            raise ValueError(
-                f"cell_len ({self.cell_len}) must exceed 2*cell_fillet "
-                f"({2 * self.cell_fillet})"
-            )
+        # Guard 5: cell_fillet is clamped (not rejected) to whatever the
+        # cell's own smaller dimension can geometrically support, so the
+        # solid always stays valid. This is a purely geometric-validity
+        # clamp and is intentionally silent (no warning) -- it's distinct
+        # from whether the fillet visually intrudes on a configured PRODUCT,
+        # which the web UI surfaces separately as a non-blocking advisory
+        # (main.js `checkFilletProductConflict`, mirroring the D5 product-fit
+        # warning): clamp for geometric validity, advise for product
+        # interference, never block the build for either.
+        max_safe_fillet = max(0.0, min(self.cell_wid, self.cell_len) / 2.0 - 0.01)
+        if self.cell_fillet > max_safe_fillet:
+            self.cell_fillet = max_safe_fillet
 
         # Guard 6: divider >= MIN_DIVIDER.
         if self.divider < MIN_DIVIDER:

@@ -150,12 +150,17 @@ export function makeTrayParams(rawInput = {}) {
     });
   }
 
-  // Guard 5: cell_wid > 2*cell_fillet and cell_len > 2*cell_fillet.
-  if (p.cellWid <= 2 * p.cellFillet) {
-    errors.push({ field: "cellWid", message: `cell_wid (${p.cellWid}) must exceed 2*cell_fillet (${2 * p.cellFillet})` });
-  }
-  if (p.cellLen <= 2 * p.cellFillet) {
-    errors.push({ field: "cellLen", message: `cell_len (${p.cellLen}) must exceed 2*cell_fillet (${2 * p.cellFillet})` });
+  // Guard 5: cell_fillet is clamped (not rejected) to whatever the cell's
+  // own smaller dimension can geometrically support, so the solid always
+  // stays valid. This is a purely geometric-validity clamp and is
+  // intentionally silent (no warning) -- it's distinct from whether the
+  // fillet visually intrudes on a configured PRODUCT, which is surfaced
+  // separately as a non-blocking advisory (see `checkFilletProductConflict`
+  // in main.js, mirroring the D5 product-fit warning): clamp for geometric
+  // validity, advise for product interference, never block the build.
+  const maxSafeFillet = Math.max(0, Math.min(p.cellWid, p.cellLen) / 2 - 0.01);
+  if (p.cellFillet > maxSafeFillet) {
+    p.cellFillet = maxSafeFillet;
   }
 
   // Guard 6: divider >= MIN_DIVIDER.

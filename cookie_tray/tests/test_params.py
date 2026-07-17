@@ -96,14 +96,36 @@ def test_guard4_strip_l_not_exceeding_lip_t_raises():
         TrayParams(strip_l=1.0, nozzle=0.42)  # lip_t = 1.26 > strip_l
 
 
-def test_guard5_cell_wid_too_small_for_fillet_raises():
-    with pytest.raises(ValueError, match="cell_wid"):
-        TrayParams(cell_wid=3.0, cell_fillet=2.0)
+def test_guard5_cell_wid_too_small_for_fillet_clamps_silently():
+    # No longer a hard reject: cell_fillet is silently clamped to whatever
+    # the cell's own smaller dimension can support, so the solid stays valid.
+    # No cell_fillet-specific warning is raised for this clamp (contrast
+    # with cradle_r's clamp, which does warn) -- but unrelated warnings
+    # (e.g. draft-angle reduction) may still fire from other defaults.
+    p = TrayParams(cell_wid=3.0, cell_fillet=2.0)
+    assert p.cell_fillet == pytest.approx(3.0 / 2 - 0.01)
 
 
-def test_guard5_cell_len_too_small_for_fillet_raises():
-    with pytest.raises(ValueError, match="cell_len"):
-        TrayParams(cell_len=3.0, cell_fillet=2.0)
+def test_guard5_cell_len_too_small_for_fillet_clamps_silently():
+    p = TrayParams(cell_len=3.0, cell_fillet=2.0)
+    assert p.cell_fillet == pytest.approx(3.0 / 2 - 0.01)
+
+
+def test_guard5_clamp_uses_the_smaller_of_cell_wid_and_cell_len():
+    p = TrayParams(cell_wid=5.0, cell_len=3.0, cell_fillet=10.0)
+    assert p.cell_fillet == pytest.approx(3.0 / 2 - 0.01)
+
+
+def test_guard5_cell_fillet_within_bounds_is_unchanged():
+    p = TrayParams(cell_wid=48.0, cell_len=170.0, cell_fillet=2.0)
+    assert p.cell_fillet == pytest.approx(2.0)
+
+
+def test_guard5_clamp_does_not_itself_warn(recwarn):
+    # draft_deg=0 sidesteps the unrelated "Draft reduced..." warning so this
+    # isolates whether the cell_fillet clamp itself emits anything.
+    TrayParams(cell_wid=3.0, cell_fillet=2.0, draft_deg=0.0)
+    assert not any("fillet" in str(w.message).lower() for w in recwarn.list)
 
 
 def test_n_cells_must_be_at_least_one():

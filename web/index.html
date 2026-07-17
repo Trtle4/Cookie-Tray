@@ -4,119 +4,289 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Cookie Tray Sizer</title>
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='45' fill='%23d4a76a'/%3E%3C/svg%3E" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='45' fill='%23c89468'/%3E%3C/svg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Hanken+Grotesk:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
     <div id="app">
       <header id="topbar">
-        <h1>Cookie Tray Sizer</h1>
+        <div class="brand">
+          <h1>Cookie Tray Sizer</h1>
+          <span class="part">CT-201 · REV A</span>
+        </div>
+        <div class="spacer"></div>
+        <span id="build-status"><span class="dot"></span><span id="build-status-text">Loading...</span></span>
         <div id="export-buttons">
-          <button id="download-stl" disabled>Download STL</button>
-          <button id="download-step" disabled>Download STEP</button>
-          <label id="fill-toggle-label">
-            <input type="checkbox" id="fill-toggle" />
-            Show product fill
-          </label>
+          <button id="download-stl" class="btn primary" disabled><span class="ic">&#8595;</span><span class="btn-label-full">Export </span>STL</button>
+          <button id="download-step" class="btn" disabled><span class="ic">&#8595;</span><span class="btn-label-full">Export </span>STEP</button>
         </div>
       </header>
       <main>
         <aside id="panel">
           <section id="product-section">
-            <h2>Product</h2>
-            <form id="product-form">
-              <label>Product type
-                <select name="productType">
-                  <option value="round">Round</option>
-                  <option value="rectangle">Rectangle</option>
-                </select>
-              </label>
-              <div id="product-round-fields">
-                <label>Cookie diameter (mm)<input type="number" name="cookieDiameter" value="45" step="0.1" /></label>
-                <label>Cookie thickness (mm)<input type="number" name="cookieThickness" value="12" step="0.1" /></label>
-              </div>
-              <div id="product-rect-fields" style="display:none">
-                <label>Product width, across cell (mm)<input type="number" name="productWidth" value="45" step="0.1" /></label>
-                <label>Product height, vertical (mm)<input type="number" name="productHeight" value="20" step="0.1" /></label>
-                <label>Product thickness, along channel (mm)<input type="number" name="productThickness" value="12" step="0.1" /></label>
-                <label>Top edge radius (mm)<input type="number" name="edgeRTop" value="2" min="0" step="0.1" /></label>
-                <label>Bottom edge radius (mm)<input type="number" name="edgeRBot" value="2" min="0" step="0.1" /></label>
-              </div>
-              <label>Total quantity<input type="number" name="qtyTotal" value="24" min="1" step="1" /></label>
-              <label>Distribute by
-                <select name="distributeBy">
-                  <option value="nCells">Number of cells</option>
-                  <option value="cookiesPerCell">Cookies per cell</option>
-                </select>
-              </label>
-              <label id="product-ncells-field">Number of cells<input type="number" name="nCellsProduct" value="3" min="1" step="1" /></label>
-              <label id="product-percell-field" style="display:none">Cookies per cell<input type="number" name="cookiesPerCell" value="8" min="1" step="1" /></label>
-            </form>
-            <p id="product-hint">
-              Suggests cell width / length / cradle radius / cell count in the Tray section below, and drives the
-              product fill preview. Edit a suggested tray field directly and your value wins from then on.
-            </p>
+            <div class="group">
+              <div class="eyebrow"><span class="n">01</span> Product</div>
+
+              <form id="product-form">
+                <div class="field">
+                  <span class="label">Shape</span>
+                  <div class="seg" id="product-type-seg">
+                    <button type="button" class="seg-btn" data-seg-value="round">Round</button>
+                    <button type="button" class="seg-btn" data-seg-value="rectangle">Rectangle</button>
+                  </div>
+                  <select name="productType" class="visually-hidden" tabindex="-1" aria-hidden="true">
+                    <option value="round">Round</option>
+                    <option value="rectangle">Rectangle</option>
+                  </select>
+                </div>
+
+                <div id="product-round-fields">
+                  <div class="row2">
+                    <div class="field">
+                      <label for="f-cookieDiameter">Diameter</label>
+                      <div class="in"><input id="f-cookieDiameter" type="number" name="cookieDiameter" value="45" step="0.1" /><span class="unit">mm</span></div>
+                    </div>
+                    <div class="field">
+                      <label for="f-cookieThickness">Thickness</label>
+                      <div class="in"><input id="f-cookieThickness" type="number" name="cookieThickness" value="12" step="0.1" /><span class="unit">mm</span></div>
+                    </div>
+                  </div>
+                </div>
+                <div id="product-rect-fields" style="display: none">
+                  <div class="row2">
+                    <div class="field">
+                      <label for="f-productWidth">Width</label>
+                      <div class="in"><input id="f-productWidth" type="number" name="productWidth" value="45" step="0.1" /><span class="unit">mm</span></div>
+                    </div>
+                    <div class="field">
+                      <label for="f-productHeight">Height</label>
+                      <div class="in"><input id="f-productHeight" type="number" name="productHeight" value="20" step="0.1" /><span class="unit">mm</span></div>
+                    </div>
+                  </div>
+                  <div class="field">
+                    <label for="f-productThickness">Thickness (along channel)</label>
+                    <div class="in"><input id="f-productThickness" type="number" name="productThickness" value="12" step="0.1" /><span class="unit">mm</span></div>
+                  </div>
+                  <div class="row2">
+                    <div class="field">
+                      <label for="f-edgeRTop">Top edge radius</label>
+                      <div class="in"><input id="f-edgeRTop" type="number" name="edgeRTop" value="2" min="0" step="0.1" /><span class="unit">mm</span></div>
+                    </div>
+                    <div class="field">
+                      <label for="f-edgeRBot">Bottom edge radius</label>
+                      <div class="in"><input id="f-edgeRBot" type="number" name="edgeRBot" value="2" min="0" step="0.1" /><span class="unit">mm</span></div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="field">
+                  <label for="f-qtyTotal">Total quantity</label>
+                  <div class="in"><input id="f-qtyTotal" type="number" name="qtyTotal" value="24" min="1" step="1" /><span class="unit">pcs</span></div>
+                </div>
+
+                <div class="field">
+                  <span class="label">Distribute by</span>
+                  <div class="seg" id="distribute-by-seg">
+                    <button type="button" class="seg-btn" data-seg-value="nCells">Cells</button>
+                    <button type="button" class="seg-btn" data-seg-value="cookiesPerCell">Per-cell</button>
+                  </div>
+                  <select name="distributeBy" class="visually-hidden" tabindex="-1" aria-hidden="true">
+                    <option value="nCells">Number of cells</option>
+                    <option value="cookiesPerCell">Cookies per cell</option>
+                  </select>
+                </div>
+                <div class="field" id="product-ncells-field">
+                  <label for="f-nCellsProduct">Number of cells</label>
+                  <div class="in"><input id="f-nCellsProduct" type="number" name="nCellsProduct" value="3" min="1" step="1" /></div>
+                </div>
+                <div class="field" id="product-percell-field" style="display: none">
+                  <label for="f-cookiesPerCell">Cookies per cell</label>
+                  <div class="in"><input id="f-cookiesPerCell" type="number" name="cookiesPerCell" value="8" min="1" step="1" /></div>
+                </div>
+              </form>
+              <div class="hint">Suggests cell size &amp; cradle radius below · edit a suggested field to make it yours</div>
+            </div>
           </section>
 
-          <section id="tray-section">
-            <h2>Tray</h2>
-            <form id="tray-form">
-              <label>Cells (N)<input type="number" name="nCells" value="3" min="1" step="1" /></label>
-              <label>Long axis
-                <select name="longAxis">
-                  <option value="X">X (length-wise)</option>
-                  <option value="Y">Y (width-wise)</option>
-                </select>
-              </label>
-              <label>Cell length (mm)<input type="number" name="cellLen" value="170" step="0.1" /></label>
-              <label>Cell width (mm)<input type="number" name="cellWid" value="48" step="0.1" /></label>
-              <label>Cell height (mm)<input type="number" name="cellH" value="28" step="0.1" /></label>
-              <label>Cradle radius (mm, blank = full round)<input type="number" name="cradleR" placeholder="cellWid/2" step="0.1" /></label>
-              <label>Wall (mm)<input type="number" name="wall" value="3.0" step="0.1" /></label>
-              <label>Divider (mm, blank = wall)<input type="number" name="divider" placeholder="wall" step="0.1" /></label>
-              <label>Cell pitch (mm, center-to-center)<input type="number" name="pitch" step="0.1" /></label>
-              <label>Floor (mm)<input type="number" name="floor" value="2.5" step="0.1" /></label>
-              <label>Corner radius (mm)<input type="number" name="cornerR" value="8.0" step="0.1" /></label>
-              <label>Draft (deg)<input type="number" name="draftDeg" value="5.0" step="0.1" /></label>
-              <label>Flange strip, length sides (mm)<input type="number" name="stripL" value="5.0" step="0.1" /></label>
-              <label>Flange strip, width sides (mm)<input type="number" name="stripW" value="5.0" step="0.1" /></label>
-              <label>Lip height (mm)<input type="number" name="lipH" value="3.0" step="0.1" /></label>
-              <label>Flange thickness (mm)<input type="number" name="flangeT" value="2.5" step="0.1" /></label>
-              <label>Cell corner fillet (mm)<input type="number" name="cellFillet" value="2.0" step="0.1" /></label>
-              <label>Nozzle width (mm)<input type="number" name="nozzle" value="0.42" step="0.01" /></label>
-            </form>
-          </section>
+          <form id="tray-form">
+            <section id="tray-section">
+              <div class="group">
+                <div class="eyebrow"><span class="n">02</span> Tray</div>
+                <div class="row2">
+                  <div class="field">
+                    <label for="f-nCells">Cells (N)</label>
+                    <div class="in"><input id="f-nCells" type="number" name="nCells" value="3" min="1" step="1" /></div>
+                  </div>
+                  <div class="field">
+                    <span class="label">Long axis</span>
+                    <div class="seg" id="long-axis-seg">
+                      <button type="button" class="seg-btn" data-seg-value="X">Length</button>
+                      <button type="button" class="seg-btn" data-seg-value="Y">Width</button>
+                    </div>
+                    <select name="longAxis" class="visually-hidden" tabindex="-1" aria-hidden="true">
+                      <option value="X">X (length-wise)</option>
+                      <option value="Y">Y (width-wise)</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="row2">
+                  <div class="field">
+                    <label for="f-cellLen">Cell length</label>
+                    <div class="in"><input id="f-cellLen" type="number" name="cellLen" value="170" step="0.1" /><span class="unit">mm</span></div>
+                  </div>
+                  <div class="field">
+                    <label for="f-cellWid">Cell width</label>
+                    <div class="in"><input id="f-cellWid" type="number" name="cellWid" value="48" step="0.1" /><span class="unit">mm</span></div>
+                  </div>
+                </div>
+                <div class="row2">
+                  <div class="field">
+                    <label for="f-cellH">Cell height</label>
+                    <div class="in"><input id="f-cellH" type="number" name="cellH" value="28" step="0.1" /><span class="unit">mm</span></div>
+                  </div>
+                  <div class="field">
+                    <label for="f-cradleR">Cradle radius</label>
+                    <div class="in"><input id="f-cradleR" type="number" name="cradleR" placeholder="cellWid/2" step="0.1" /><span class="unit">mm</span></div>
+                    <div class="hint">blank = cell width ÷ 2</div>
+                  </div>
+                </div>
+                <div class="field">
+                  <label for="f-floor">Floor thickness</label>
+                  <div class="in"><input id="f-floor" type="number" name="floor" value="2.5" step="0.1" /><span class="unit">mm</span></div>
+                </div>
+              </div>
+            </section>
+
+            <section id="walls-section">
+              <div class="group">
+                <div class="eyebrow"><span class="n">03</span> Walls &amp; flange</div>
+                <div class="row2">
+                  <div class="field">
+                    <label for="f-wall">Outer wall</label>
+                    <div class="in"><input id="f-wall" type="number" name="wall" value="3.0" step="0.1" /><span class="unit">mm</span></div>
+                  </div>
+                  <div class="field">
+                    <label for="f-divider">Divider</label>
+                    <div class="in"><input id="f-divider" type="number" name="divider" placeholder="wall" step="0.1" /><span class="unit">mm</span></div>
+                    <div class="hint">blank = wall thickness</div>
+                  </div>
+                </div>
+                <div class="field">
+                  <label for="f-pitch">Cell pitch (center-to-center)</label>
+                  <div class="in"><input id="f-pitch" type="number" name="pitch" step="0.1" /><span class="unit">mm</span></div>
+                </div>
+                <div class="row2">
+                  <div class="field">
+                    <label for="f-cornerR">Corner radius</label>
+                    <div class="in"><input id="f-cornerR" type="number" name="cornerR" value="8.0" step="0.1" /><span class="unit">mm</span></div>
+                  </div>
+                  <div class="field">
+                    <label for="f-draftDeg">Draft</label>
+                    <div class="in"><input id="f-draftDeg" type="number" name="draftDeg" value="5.0" step="0.1" /><span class="unit">deg</span></div>
+                  </div>
+                </div>
+                <div class="row2">
+                  <div class="field">
+                    <label for="f-stripL">Flange · length sides</label>
+                    <div class="in"><input id="f-stripL" type="number" name="stripL" value="5.0" step="0.1" /><span class="unit">mm</span></div>
+                  </div>
+                  <div class="field">
+                    <label for="f-stripW">Flange · width sides</label>
+                    <div class="in"><input id="f-stripW" type="number" name="stripW" value="5.0" step="0.1" /><span class="unit">mm</span></div>
+                  </div>
+                </div>
+                <div class="row2">
+                  <div class="field">
+                    <label for="f-lipH">Lip height</label>
+                    <div class="in"><input id="f-lipH" type="number" name="lipH" value="3.0" step="0.1" /><span class="unit">mm</span></div>
+                  </div>
+                  <div class="field">
+                    <label for="f-flangeT">Flange thickness</label>
+                    <div class="in"><input id="f-flangeT" type="number" name="flangeT" value="2.5" step="0.1" /><span class="unit">mm</span></div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section id="finish-section">
+              <div class="group">
+                <div class="eyebrow"><span class="n">04</span> Finish</div>
+                <div class="row2">
+                  <div class="field">
+                    <label for="f-cellFillet">Cell corner fillet</label>
+                    <div class="in"><input id="f-cellFillet" type="number" name="cellFillet" value="2.0" step="0.1" /><span class="unit">mm</span></div>
+                  </div>
+                  <div class="field">
+                    <label for="f-nozzle">Nozzle width</label>
+                    <div class="in"><input id="f-nozzle" type="number" name="nozzle" value="0.42" step="0.01" /><span class="unit">mm</span></div>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </form>
 
           <div id="messages"></div>
-          <div id="derived-summary"></div>
         </aside>
+
         <section id="viewport">
+          <div id="viewport-grid"></div>
+
           <div id="viewport-toolbar">
             <div id="camera-buttons" class="toolbar-group">
               <button type="button" class="cam-btn" data-view="iso">Iso</button>
               <button type="button" class="cam-btn" data-view="top">Top</button>
-              <button type="button" class="cam-btn" data-view="bottom">Bottom</button>
               <button type="button" class="cam-btn" data-view="front">Front</button>
               <button type="button" class="cam-btn" data-view="side">Side</button>
             </div>
             <div id="section-controls" class="toolbar-group">
-              <label id="section-toggle-label">
+              <label class="tbtn" id="section-toggle-label">
                 <input type="checkbox" id="section-toggle" />
-                Cross-section
+                Section
               </label>
-              <label class="toolbar-inline">Axis
-                <select id="section-axis">
-                  <option value="X" selected>X</option>
-                  <option value="Y">Y</option>
-                  <option value="Z">Z</option>
-                </select>
-              </label>
+              <select id="section-axis" disabled>
+                <option value="X" selected>X</option>
+                <option value="Y">Y</option>
+                <option value="Z">Z</option>
+              </select>
               <input type="range" id="section-slider" min="0" max="1" step="0.01" value="0.5" disabled />
             </div>
+            <div class="toolbar-group">
+              <label class="tbtn" id="fill-toggle-label">
+                <input type="checkbox" id="fill-toggle" />
+                Fill
+              </label>
+              <label class="tbtn" id="dims-toggle-label">
+                <input type="checkbox" id="dims-toggle" checked />
+                Dims
+              </label>
+              <button type="button" class="tbtn icon" id="fit-btn" title="Re-fit view">&#10530;</button>
+            </div>
           </div>
+
           <canvas id="three-canvas"></canvas>
+          <svg class="dims-overlay" id="dims-overlay" aria-hidden="true"></svg>
+
           <div id="status-overlay">Loading OpenCASCADE...</div>
+
+          <div class="titleblock" id="titleblock">
+            <div class="tbhead"><span id="tb-title">Cookie Tray</span><span id="tb-cells">3-CELL</span></div>
+            <div id="tb-rows"></div>
+          </div>
+
+          <div class="scalechip" id="view-chip">Iso view · mm</div>
         </section>
+
+        <!-- mobile-only: spec drops below the render instead of floating over it -->
+        <div class="mobile-spec" id="mobile-spec">
+          <div class="ms-head"><span id="ms-title">Cookie Tray · 3-cell</span><span class="ms-ready" id="ms-ready">Loading</span></div>
+          <div class="ms-grid" id="ms-grid"></div>
+        </div>
       </main>
     </div>
     <script type="module" src="/src/main.js"></script>
