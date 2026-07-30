@@ -44,7 +44,7 @@ function roundedRectShape(width, height, rTop, rBot) {
  * (width x height, with independent top/bottom corner radii), extruded
  * along the channel axis (local X) by `thickness`. Centered at the origin
  * on all three axes, matching CylinderGeometry's own centering convention. */
-function rectProductGeometry(width, height, thickness, edgeRTop, edgeRBot) {
+export function rectProductGeometry(width, height, thickness, edgeRTop, edgeRBot) {
   const shape = roundedRectShape(width, height, edgeRTop, edgeRBot);
   const geometry = new THREE.ExtrudeGeometry(shape, { depth: thickness, bevelEnabled: false, curveSegments: 12 });
   geometry.translate(0, 0, -thickness / 2);

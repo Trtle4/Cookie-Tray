@@ -212,6 +212,17 @@ input,
   margin-right: 6px;
 }
 
+.icon-btn {
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  flex: none;
+}
+
 /* ---------- body ---------- */
 main {
   flex: 1;
@@ -892,6 +903,12 @@ main {
     margin-right: auto;
   }
 
+  #ar-share-btn {
+    width: 44px;
+    height: 44px;
+    font-size: 18px;
+  }
+
   #export-control {
     width: 100%;
     flex-direction: column;
@@ -925,5 +942,209 @@ main {
    * reads clearly and the buttons fit comfortably at 390px. */
   .btn-label-full {
     display: none;
+  }
+}
+
+/* ---------- AR / Share panel ---------- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(20, 28, 32, 0.45);
+}
+
+.modal-overlay.hidden {
+  display: none;
+}
+
+.modal {
+  width: 100%;
+  max-width: 420px;
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  background: var(--panel);
+  border-radius: var(--r);
+  border: 1px solid var(--line);
+  box-shadow: 0 20px 60px rgba(15, 25, 30, 0.25);
+  padding: 18px 20px 22px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .modal-overlay:not(.hidden) .modal {
+    animation: modal-in 0.18s var(--ease);
+  }
+}
+
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.modal-head h2 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.modal-close {
+  border: none;
+  background: transparent;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--ink-2);
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: var(--r-sm);
+}
+
+.modal-close:hover {
+  background: var(--panel-2);
+  color: var(--ink);
+}
+
+#ar-target-seg {
+  width: 100%;
+  margin-bottom: 14px;
+}
+
+#ar-viewer-wrap {
+  position: relative;
+  margin-bottom: 16px;
+}
+
+#ar-viewer-status {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12.5px;
+  color: var(--ink-3);
+  font-family: var(--mono);
+  background: var(--panel-2);
+  border-radius: var(--r-sm);
+}
+
+#ar-model-viewer {
+  display: block;
+  width: 100%;
+  height: 260px;
+  background: var(--panel-2);
+  border-radius: var(--r-sm);
+  --poster-color: transparent;
+}
+
+.ar-note {
+  font-size: 11.5px;
+  color: var(--ink-3);
+  margin: 8px 0 0;
+  line-height: 1.5;
+}
+
+#ar-qr-section {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  padding-top: 14px;
+  border-top: 1px solid var(--line-2);
+}
+
+#ar-qr-canvas-wrap {
+  flex: none;
+  padding: 6px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  line-height: 0;
+}
+
+#ar-qr-canvas {
+  display: block;
+  width: 96px;
+  height: 96px;
+}
+
+.ar-link-col {
+  flex: 1;
+  min-width: 0;
+}
+
+.ar-link-col .label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-2);
+  margin-bottom: 5px;
+}
+
+.ar-link-row {
+  display: flex;
+  gap: 6px;
+}
+
+#ar-share-link {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  padding: 7px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--panel-2);
+  color: var(--ink-2);
+}
+
+.ar-hint {
+  font-size: 11.5px;
+  color: var(--ink-3);
+  margin: 8px 0 0;
+  line-height: 1.5;
+}
+
+@media (max-width: 480px) {
+  .modal-overlay {
+    padding: 0;
+    align-items: flex-end;
+  }
+
+  .modal {
+    max-width: none;
+    max-height: 92vh;
+    border-radius: var(--r) var(--r) 0 0;
+  }
+
+  #ar-qr-section {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+
+  .ar-link-col {
+    width: 100%;
+  }
+
+  #ar-copy-link-btn {
+    min-height: 44px;
+  }
+
+  #ar-target-seg .seg-btn {
+    min-height: 44px;
   }
 }

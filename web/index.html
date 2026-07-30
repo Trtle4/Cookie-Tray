@@ -22,6 +22,9 @@
         </div>
         <div class="spacer"></div>
         <span id="build-status"><span class="dot"></span><span id="build-status-text">Loading...</span></span>
+        <button type="button" class="btn icon-btn" id="ar-share-btn" title="View on phone / AR" aria-label="View on phone or in AR" disabled>
+          <span aria-hidden="true">&#9974;</span>
+        </button>
         <div id="export-control">
           <div class="seg" id="export-target-seg">
             <button type="button" class="seg-btn on" data-seg-value="tray">Tray</button>
@@ -294,6 +297,48 @@
           <div class="ms-grid" id="ms-grid"></div>
         </div>
       </main>
+
+      <div class="modal-overlay hidden" id="ar-panel-overlay">
+        <div class="modal" id="ar-panel" role="dialog" aria-modal="true" aria-labelledby="ar-panel-title">
+          <div class="modal-head">
+            <h2 id="ar-panel-title">View on phone / AR</h2>
+            <button type="button" class="modal-close" id="ar-panel-close" aria-label="Close">&times;</button>
+          </div>
+
+          <div class="seg" id="ar-target-seg">
+            <button type="button" class="seg-btn on" data-seg-value="tray">Tray</button>
+            <button type="button" class="seg-btn" data-seg-value="product" id="ar-target-product-btn" disabled>Product</button>
+          </div>
+
+          <div id="ar-viewer-wrap">
+            <div id="ar-viewer-status">Preparing 3D model...</div>
+            <model-viewer
+              id="ar-model-viewer"
+              camera-controls
+              ar
+              ar-modes="scene-viewer quick-look webxr"
+              shadow-intensity="1"
+              exposure="1"
+            ></model-viewer>
+            <p class="ar-note" id="ar-note">
+              Android (Chrome): tap the AR icon in the viewer to place this in your space. iPhone: AR Quick Look isn't wired
+              up yet here — rotate &amp; zoom the 3D model above instead.
+            </p>
+          </div>
+
+          <div id="ar-qr-section">
+            <div id="ar-qr-canvas-wrap"><canvas id="ar-qr-canvas" width="176" height="176"></canvas></div>
+            <div class="ar-link-col">
+              <label for="ar-share-link" class="label">Shareable link</label>
+              <div class="ar-link-row">
+                <input type="text" id="ar-share-link" readonly aria-label="Shareable link" />
+                <button type="button" class="btn" id="ar-copy-link-btn">Copy</button>
+              </div>
+              <p class="ar-hint">Scan with your phone's camera to open this exact tray and view it in AR.</p>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
     <script type="module" src="/src/main.js"></script>
   </body>

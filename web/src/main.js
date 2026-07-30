@@ -4,6 +4,9 @@ import { makeTrayParams, inputOnly } from "./params.js";
 import { suggestFromProduct } from "./calculator.js";
 import { Viewer } from "./viewer.js";
 import { buildFillGroup } from "./fill.js";
+import { encodeStateToParams, decodeStateFromParams } from "./urlState.js";
+import { exportTrayGLB, exportProductGLB } from "./arExport.js";
+import QRCode from "qrcode";
 
 const worker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
 const api = wrap(worker);
@@ -47,6 +50,17 @@ const els = {
   msTitle: document.getElementById("ms-title"),
   msReady: document.getElementById("ms-ready"),
   msGrid: document.getElementById("ms-grid"),
+  // phone/AR handoff
+  arShareBtn: document.getElementById("ar-share-btn"),
+  arPanelOverlay: document.getElementById("ar-panel-overlay"),
+  arPanelClose: document.getElementById("ar-panel-close"),
+  arTargetSeg: document.getElementById("ar-target-seg"),
+  arTargetProductBtn: document.getElementById("ar-target-product-btn"),
+  arModelViewer: document.getElementById("ar-model-viewer"),
+  arViewerStatus: document.getElementById("ar-viewer-status"),
+  arQrCanvas: document.getElementById("ar-qr-canvas"),
+  arShareLink: document.getElementById("ar-share-link"),
+  arCopyLinkBtn: document.getElementById("ar-copy-link-btn"),
 };
 
 const viewer = new Viewer(els.canvas);
@@ -83,6 +97,44 @@ const SUGGESTABLE_FIELDS = ["nCells", "cellLen", "cellWid", "cellH", "cradleR"];
 const userTouched = new Set();
 let sectionAxisTouched = false;
 
+/** On load, if the URL carries a params-in-URL link (see urlState.js),
+ * populate the tray/product forms from it BEFORE the first build -- the
+ * decoded values just become form field values, so they run through the
+ * exact same makeTrayParams/suggestFromProduct validation+guard pipeline
+ * regular typed input does. Never a bypass: a bad URL value blocks or
+ * clamps exactly like a bad typed value would. This is what makes any
+ * configured tray a shareable/bookmarkable link, and what the QR/AR panel
+ * piggybacks on (it just encodes the live location.href). */
+function applyURLParamsToForm() {
+  const { trayInput, productInput, hasAny } = decodeStateFromParams(new URL(location.href).searchParams);
+  if (!hasAny) return;
+
+  // Mark any suggestable tray field explicitly present in the URL as
+  // user-owned BEFORE the productType/distributeBy "change" dispatches
+  // below (which trigger applyProductSuggestions), so the suggestion
+  // engine never clobbers a value that came from the shared link.
+  for (const key of Object.keys(trayInput)) {
+    if (SUGGESTABLE_FIELDS.includes(key)) userTouched.add(key);
+  }
+
+  for (const [key, val] of Object.entries(productInput)) {
+    const el = els.productForm.elements[key];
+    if (el) el.value = val;
+  }
+  for (const [key, val] of Object.entries(trayInput)) {
+    const el = els.trayForm.elements[key];
+    if (el) el.value = val;
+  }
+
+  // Re-sync the presentational bits a real user interaction would normally
+  // drive (segmented "on" state, round/rect + per-cell field visibility),
+  // and -- via the productType/distributeBy "change" listeners -- apply
+  // suggestions + schedule the first build.
+  els.productType.dispatchEvent(new Event("change", { bubbles: true }));
+  els.distributeBy.dispatchEvent(new Event("change", { bubbles: true }));
+  els.trayForm.elements.longAxis.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
 let lastValidParams = null; // §3 input-shaped params, ready for buildTray
 let lastDerived = null; // makeTrayParams(...).derived for lastValidParams -- feeds the title-block + dimension overlay
 let lastFillSpec = null; // { cookiesPerCell, cookieDiameter, cookieThickness, endClearance } | null
@@ -111,6 +163,7 @@ function refreshExportButtons() {
   const exportable = exportTarget === "product" ? buildExportable && productAvailable : buildExportable;
   els.downloadStl.disabled = !exportable;
   els.downloadStep.disabled = !exportable;
+  if (els.arShareBtn) els.arShareBtn.disabled = !buildExportable;
 }
 
 function setExportTarget(target) {
@@ -503,6 +556,21 @@ function filenameFor(params, ext) {
   return `cookietray_${params.nCells}x_${Math.round(params.cellWid)}w_${Math.round(params.cellLen)}l_${Math.round(params.cradleR)}r_${Math.round(params.draftDeg)}d.${ext}`;
 }
 
+/** Sync the URL querystring to the CURRENT form state via replaceState (no
+ * history spam). Together with applyURLParamsToForm() above, this is what
+ * makes any configured tray a shareable/bookmarkable link -- called after
+ * every SUCCESSFUL build (not the failed-build recovery path: the URL
+ * should reflect what actually built, not input that just errored). */
+function updateURLFromState() {
+  const trayInput = formToObject(els.trayForm);
+  const productInput = formToObject(els.productForm);
+  const qs = encodeStateToParams({ trayInput, productInput }).toString();
+  const url = new URL(location.href);
+  url.search = qs;
+  history.replaceState(null, "", url);
+  refreshARPanelIfOpen();
+}
+
 /** Trims to at most 2 decimals without forcing trailing zeros (12.70 -> "12.7", 46 -> "46"). */
 function fmtNum(n) {
   return Number(n.toFixed(2)).toString();
@@ -588,6 +656,7 @@ async function rebuild() {
     setViewportStale(false);
     setStatus("");
     setBuildStatus("ready", "Ready to export");
+    updateURLFromState();
   } catch (err) {
     if (token !== buildToken) return;
     setStatus("");
@@ -735,6 +804,134 @@ function updateDimsOverlay() {
 }
 updateDimsOverlay();
 
+// ---- Phone / AR handoff ----
+// The QR code just encodes the live location.href (kept in sync with the
+// current build by updateURLFromState() above) -- scanning it opens this
+// exact tray/product on the phone, which rebuilds it locally from the URL
+// params. No upload, no backend, no file transfer. The in-app "View in AR"
+// button (model-viewer's own, auto-hidden when the device/browser can't do
+// AR) launches Scene Viewer on Android; iOS gets no ios-src USDZ yet, so it
+// degrades to the interactive 3D preview instead of a broken AR button --
+// see the note rendered under the model.
+let arPanelOpen = false;
+let arTarget = "tray";
+let currentModelObjectUrl = null;
+
+async function ensureModelViewerLoaded() {
+  if (!customElements.get("model-viewer")) {
+    // The package's ESM "module" entry re-imports a bare "three" specifier
+    // at a newer API version than this app pins (peer range conflict --
+    // see the --legacy-peer-deps install). Its prebuilt dist bundle is
+    // fully self-contained (its own internal three, no external imports),
+    // so target that directly instead of the bare package specifier.
+    await import("@google/model-viewer/dist/model-viewer.min.js");
+  }
+}
+
+function setArTarget(target) {
+  arTarget = target;
+  for (const b of els.arTargetSeg.querySelectorAll(".seg-btn")) {
+    b.classList.toggle("on", b.dataset.segValue === target);
+  }
+  refreshARModel();
+}
+
+for (const btn of els.arTargetSeg.querySelectorAll(".seg-btn")) {
+  btn.addEventListener("click", () => {
+    if (btn.disabled) return;
+    setArTarget(btn.dataset.segValue);
+  });
+}
+
+/** Export the currently-selected target (tray or product) as a display-only
+ * GLB and point model-viewer at it. Never touches the STL/STEP export path
+ * (worker.js) -- entirely separate three.js-side geometry (see arExport.js). */
+async function refreshARModel() {
+  if (!arPanelOpen) return;
+  els.arViewerStatus.textContent = "Preparing 3D model...";
+  els.arViewerStatus.classList.remove("hidden");
+  try {
+    await ensureModelViewerLoaded();
+    const blob = arTarget === "product" ? await exportProductGLB(productSpecForExport()) : await exportTrayGLB(viewer);
+    if (currentModelObjectUrl) URL.revokeObjectURL(currentModelObjectUrl);
+    currentModelObjectUrl = URL.createObjectURL(blob);
+    els.arModelViewer.src = currentModelObjectUrl;
+    els.arViewerStatus.classList.add("hidden");
+  } catch (err) {
+    els.arViewerStatus.textContent =
+      arTarget === "product" && !lastFillSpec ? "No product configured yet." : `Couldn't prepare model: ${err.message}`;
+    els.arViewerStatus.classList.remove("hidden");
+  }
+}
+
+/** QR encodes the live, params-carrying URL -- generated client-side only
+ * (the qrcode package renders to <canvas>; nothing is sent anywhere). */
+async function refreshARQr() {
+  const url = location.href;
+  els.arShareLink.value = url;
+  try {
+    await QRCode.toCanvas(els.arQrCanvas, url, {
+      width: 176,
+      margin: 1,
+      color: { dark: "#192227", light: "#ffffff" },
+    });
+  } catch {
+    // QR payload too long for the chosen size, or canvas unsupported -- the
+    // link text + copy button below still work as a fallback.
+  }
+}
+
+async function openARPanel() {
+  arPanelOpen = true;
+  els.arPanelOverlay.classList.remove("hidden");
+  els.arTargetProductBtn.disabled = !lastFillSpec;
+  if (!lastFillSpec && arTarget === "product") arTarget = "tray";
+  setArTarget(arTarget);
+  await refreshARQr();
+}
+
+function closeARPanel() {
+  arPanelOpen = false;
+  els.arPanelOverlay.classList.add("hidden");
+}
+
+/** Called after every successful build (see updateURLFromState) so the
+ * panel's model + QR stay live if the user leaves it open while tweaking
+ * inputs, without doing any of that work while the panel is closed. */
+function refreshARPanelIfOpen() {
+  if (!arPanelOpen) return;
+  els.arTargetProductBtn.disabled = !lastFillSpec;
+  if (!lastFillSpec && arTarget === "product") {
+    setArTarget("tray"); // triggers refreshARModel() itself
+  } else {
+    refreshARModel();
+  }
+  refreshARQr();
+}
+
+els.arShareBtn?.addEventListener("click", () => openARPanel());
+els.arPanelClose?.addEventListener("click", () => closeARPanel());
+els.arPanelOverlay?.addEventListener("click", (event) => {
+  if (event.target === els.arPanelOverlay) closeARPanel();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && arPanelOpen) closeARPanel();
+});
+
+els.arCopyLinkBtn?.addEventListener("click", async () => {
+  const original = els.arCopyLinkBtn.textContent;
+  try {
+    await navigator.clipboard.writeText(els.arShareLink.value);
+    els.arCopyLinkBtn.textContent = "Copied!";
+  } catch {
+    els.arShareLink.select();
+    els.arCopyLinkBtn.textContent = "Select + Ctrl/Cmd-C";
+  }
+  setTimeout(() => {
+    els.arCopyLinkBtn.textContent = original;
+  }, 1500);
+});
+
 function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -776,11 +973,12 @@ els.downloadStep.addEventListener("click", () => handleExport("step"));
 
 setStatus("Loading OpenCASCADE...");
 setBuildStatus("building", "Loading...");
+applyURLParamsToForm(); // populate the form from a shared link BEFORE the first build, if present
 api
   .init()
   .then(() => {
     setStatus("");
-    applyProductSuggestions(); // seed suggestable tray fields from product defaults
+    applyProductSuggestions(); // seed suggestable tray fields from product defaults (or URL-provided values)
   })
   .catch((err) => {
     setStatus(`Failed to load OpenCASCADE: ${err.message}`);
@@ -798,4 +996,9 @@ window.__cookieTray = {
   get lastDerived() { return lastDerived; },
   get exportTarget() { return exportTarget; },
   setExportTarget,
+  openARPanel,
+  closeARPanel,
+  setArTarget,
+  get arPanelOpen() { return arPanelOpen; },
+  get arTarget() { return arTarget; },
 };
