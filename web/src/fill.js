@@ -101,15 +101,29 @@ export function buildFillGroup({
     depthWrite: true,
   });
 
+  // A small visible gap between consecutive products (viz-only): each
+  // product's own RENDERED thickness is shaved slightly thinner than the
+  // pack pitch it occupies, so a packed row reads as discrete pieces
+  // instead of one continuous log. Centers/pitch/count/positions below are
+  // still keyed on the true packPitch, untouched -- only the individual
+  // mesh's thickness axis (extrusion depth / cylinder height) shrinks,
+  // symmetrically, so it stays centered in its slot.
+  const DIVIDER_GAP_FRACTION = 0.12;
+  const MAX_DIVIDER_GAP = 0.8; // mm -- caps the gap so thick packs don't read as a missing piece
+
   let geometry, packPitch, centerZOffset;
   if (productType === "rectangle") {
     packPitch = productThickness;
     centerZOffset = productHeight / 2 + RESTING_EPS; // bottom face at floor (+ a hair)
-    geometry = rectProductGeometry(productWidth, productHeight, productThickness, edgeRTop, edgeRBot);
+    const gap = Math.min(MAX_DIVIDER_GAP, packPitch * DIVIDER_GAP_FRACTION);
+    const renderThickness = Math.max(packPitch - gap, packPitch * 0.5);
+    geometry = rectProductGeometry(productWidth, productHeight, renderThickness, edgeRTop, edgeRBot);
   } else {
     packPitch = cookieThickness;
     centerZOffset = cookieDiameter / 2 + RESTING_EPS; // lowest point at floor (+ a hair)
-    geometry = new THREE.CylinderGeometry(cookieDiameter / 2, cookieDiameter / 2, cookieThickness, 48);
+    const gap = Math.min(MAX_DIVIDER_GAP, packPitch * DIVIDER_GAP_FRACTION);
+    const renderThickness = Math.max(packPitch - gap, packPitch * 0.5);
+    geometry = new THREE.CylinderGeometry(cookieDiameter / 2, cookieDiameter / 2, renderThickness, 48);
   }
 
   // Build in the canonical (long axis = X) frame, then rotate the whole

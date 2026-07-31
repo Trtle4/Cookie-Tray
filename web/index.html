@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Cookie Tray Sizer</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='45' fill='%23c89468'/%3E%3C/svg%3E" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -119,7 +119,12 @@
                   <div class="in"><input id="f-cookiesPerCell" type="number" name="cookiesPerCell" value="8" min="1" step="1" /></div>
                 </div>
               </form>
-              <div class="hint">Suggests cell size &amp; cradle radius below · edit a suggested field to make it yours</div>
+              <div class="hint-row">
+                <div class="hint">Suggests cell size &amp; cradle radius below · edit a suggested field to make it yours</div>
+                <button type="button" class="reset-all-btn" id="reset-all-suggestions-btn" disabled title="Clear all manual overrides and recompute from the product">
+                  &#8635; Reset to auto
+                </button>
+              </div>
             </div>
           </section>
 
@@ -128,8 +133,11 @@
               <div class="group">
                 <div class="eyebrow"><span class="n">02</span> Tray</div>
                 <div class="row2">
-                  <div class="field">
-                    <label for="f-nCells">Cells (N)</label>
+                  <div class="field" data-suggestable="nCells">
+                    <div class="field-label-row">
+                      <label for="f-nCells">Cells (N)</label>
+                      <button type="button" class="reset-auto-btn" data-field="nCells" title="Reset to auto (recompute from product)">&#8635; auto</button>
+                    </div>
                     <div class="in"><input id="f-nCells" type="number" name="nCells" value="3" min="1" step="1" /></div>
                   </div>
                   <div class="field">
@@ -145,22 +153,34 @@
                   </div>
                 </div>
                 <div class="row2">
-                  <div class="field">
-                    <label for="f-cellLen">Cell length</label>
+                  <div class="field" data-suggestable="cellLen">
+                    <div class="field-label-row">
+                      <label for="f-cellLen">Cell length</label>
+                      <button type="button" class="reset-auto-btn" data-field="cellLen" title="Reset to auto (recompute from product)">&#8635; auto</button>
+                    </div>
                     <div class="in"><input id="f-cellLen" type="number" name="cellLen" value="170" step="0.1" /><span class="unit">mm</span></div>
                   </div>
-                  <div class="field">
-                    <label for="f-cellWid">Cell width</label>
+                  <div class="field" data-suggestable="cellWid">
+                    <div class="field-label-row">
+                      <label for="f-cellWid">Cell width</label>
+                      <button type="button" class="reset-auto-btn" data-field="cellWid" title="Reset to auto (recompute from product)">&#8635; auto</button>
+                    </div>
                     <div class="in"><input id="f-cellWid" type="number" name="cellWid" value="48" step="0.1" /><span class="unit">mm</span></div>
                   </div>
                 </div>
                 <div class="row2">
-                  <div class="field">
-                    <label for="f-cellH">Cell height</label>
+                  <div class="field" data-suggestable="cellH">
+                    <div class="field-label-row">
+                      <label for="f-cellH">Cell height</label>
+                      <button type="button" class="reset-auto-btn" data-field="cellH" title="Reset to auto (recompute from product)">&#8635; auto</button>
+                    </div>
                     <div class="in"><input id="f-cellH" type="number" name="cellH" value="28" step="0.1" /><span class="unit">mm</span></div>
                   </div>
-                  <div class="field">
-                    <label for="f-cradleR">Cradle radius</label>
+                  <div class="field" data-suggestable="cradleR">
+                    <div class="field-label-row">
+                      <label for="f-cradleR">Cradle radius</label>
+                      <button type="button" class="reset-auto-btn" data-field="cradleR" title="Reset to auto (recompute from product)">&#8635; auto</button>
+                    </div>
                     <div class="in"><input id="f-cradleR" type="number" name="cradleR" placeholder="cellWid/2" step="0.1" /><span class="unit">mm</span></div>
                     <div class="hint">blank = cell width ÷ 2</div>
                   </div>
@@ -300,14 +320,27 @@
 
       <div class="modal-overlay hidden" id="ar-panel-overlay">
         <div class="modal" id="ar-panel" role="dialog" aria-modal="true" aria-labelledby="ar-panel-title">
+          <div class="modal-drag-handle" aria-hidden="true"></div>
           <div class="modal-head">
             <h2 id="ar-panel-title">View on phone / AR</h2>
             <button type="button" class="modal-close" id="ar-panel-close" aria-label="Close">&times;</button>
           </div>
 
-          <div class="seg" id="ar-target-seg">
-            <button type="button" class="seg-btn on" data-seg-value="tray">Tray</button>
-            <button type="button" class="seg-btn" data-seg-value="product" id="ar-target-product-btn" disabled>Product</button>
+          <div id="ar-controls-row">
+            <div class="seg" id="ar-target-seg">
+              <button type="button" class="seg-btn on" data-seg-value="tray">Tray</button>
+              <button type="button" class="seg-btn" data-seg-value="product" id="ar-target-product-btn" disabled>Product</button>
+            </div>
+            <div id="ar-overlay-toggles">
+              <label class="tbtn" id="ar-fill-toggle-label">
+                <input type="checkbox" id="ar-fill-toggle" />
+                Fill
+              </label>
+              <label class="tbtn" id="ar-dims-toggle-label">
+                <input type="checkbox" id="ar-dims-toggle" checked />
+                Dims
+              </label>
+            </div>
           </div>
 
           <div id="ar-viewer-wrap">
@@ -319,11 +352,10 @@
               ar-modes="scene-viewer quick-look webxr"
               shadow-intensity="1"
               exposure="1"
-            ></model-viewer>
-            <p class="ar-note" id="ar-note">
-              Android (Chrome): tap the AR icon in the viewer to place this in your space. iPhone: AR Quick Look isn't wired
-              up yet here — rotate &amp; zoom the 3D model above instead.
-            </p>
+            >
+              <div slot="hotspot-dims" class="ar-hotspot" id="ar-dims-hotspot" data-position="0 0 0" data-normal="0 1 0"></div>
+            </model-viewer>
+            <p class="ar-note" id="ar-note"></p>
           </div>
 
           <div id="ar-qr-section">

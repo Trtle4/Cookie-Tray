@@ -5,7 +5,7 @@ import { suggestFromProduct } from "./calculator.js";
 import { Viewer } from "./viewer.js";
 import { buildFillGroup } from "./fill.js";
 import { encodeStateToParams, decodeStateFromParams } from "./urlState.js";
-import { exportTrayGLB, exportProductGLB } from "./arExport.js";
+import { exportTrayGLB, exportProductGLB, exportTrayUSDZ, exportProductUSDZ } from "./arExport.js";
 import QRCode from "qrcode";
 
 const worker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
@@ -29,6 +29,7 @@ const els = {
   productType: document.querySelector('select[name="productType"]'),
   roundFields: document.getElementById("product-round-fields"),
   rectFields: document.getElementById("product-rect-fields"),
+  resetAllBtn: document.getElementById("reset-all-suggestions-btn"),
   cameraButtons: document.querySelectorAll(".cam-btn"),
   sectionToggle: document.getElementById("section-toggle"),
   sectionAxis: document.getElementById("section-axis"),
@@ -53,11 +54,16 @@ const els = {
   // phone/AR handoff
   arShareBtn: document.getElementById("ar-share-btn"),
   arPanelOverlay: document.getElementById("ar-panel-overlay"),
+  arPanel: document.getElementById("ar-panel"),
   arPanelClose: document.getElementById("ar-panel-close"),
   arTargetSeg: document.getElementById("ar-target-seg"),
   arTargetProductBtn: document.getElementById("ar-target-product-btn"),
   arModelViewer: document.getElementById("ar-model-viewer"),
   arViewerStatus: document.getElementById("ar-viewer-status"),
+  arFillToggle: document.getElementById("ar-fill-toggle"),
+  arDimsToggle: document.getElementById("ar-dims-toggle"),
+  arDimsHotspot: document.getElementById("ar-dims-hotspot"),
+  arNote: document.getElementById("ar-note"),
   arQrCanvas: document.getElementById("ar-qr-canvas"),
   arShareLink: document.getElementById("ar-share-link"),
   arCopyLinkBtn: document.getElementById("ar-copy-link-btn"),
@@ -68,7 +74,14 @@ const viewer = new Viewer(els.canvas);
 // ---- Segmented toggles: presentational buttons driving the real (visually
 // hidden) <select> each is paired with, so field name/value/validation
 // logic is completely untouched -- these just make the existing selects
-// look/feel like a segmented control. ----
+// look/feel like a segmented control. Dispatches BOTH "input" and "change"
+// (real browsers fire "input" before "change" on a <select>), so a click
+// arms the exact same live-update pipeline a keystroke does -- productType/
+// distributeBy already had their own dedicated "change" listeners, but
+// longAxis didn't, and nothing else in trayForm listens for "change"; only
+// its generic "input" listener schedules a rebuild. Without the "input"
+// dispatch, clicking Length/Width silently updated the field but never
+// rebuilt the tray (reproducible with or without URL-loaded params). ----
 function wireSegment(container, selectEl) {
   const buttons = container.querySelectorAll(".seg-btn");
   const syncFromSelect = () => {
@@ -78,6 +91,7 @@ function wireSegment(container, selectEl) {
     b.addEventListener("click", () => {
       if (selectEl.value === b.dataset.segValue) return;
       selectEl.value = b.dataset.segValue;
+      selectEl.dispatchEvent(new Event("input", { bubbles: true }));
       selectEl.dispatchEvent(new Event("change", { bubbles: true }));
       syncFromSelect();
     });
@@ -92,10 +106,49 @@ wireSegment(els.longAxisSeg, els.trayForm.elements.longAxis);
 
 // Tray fields the product section can suggest a value for. If the user has
 // edited one of these directly, their value wins — the product section
-// stops overwriting it until the page is reloaded.
+// stops overwriting it until it's explicitly released back to auto (the
+// per-field reset-to-auto affordance / "Reset to auto" below), not just on
+// reload.
 const SUGGESTABLE_FIELDS = ["nCells", "cellLen", "cellWid", "cellH", "cradleR"];
 const userTouched = new Set();
 let sectionAxisTouched = false;
+
+/** Reflects each suggestable field's manual/auto state onto its .field
+ * wrapper (data-manual, toggling the inline reset-to-auto affordance) and
+ * enables/disables the bulk "Reset to auto" control -- called any time
+ * userTouched changes for a suggestable field. */
+function syncSuggestableFieldAffordances() {
+  let anyManual = false;
+  for (const field of SUGGESTABLE_FIELDS) {
+    const manual = userTouched.has(field);
+    if (manual) anyManual = true;
+    const wrapper = els.trayForm.elements[field]?.closest(".field");
+    if (wrapper) wrapper.dataset.manual = manual ? "true" : "false";
+  }
+  if (els.resetAllBtn) els.resetAllBtn.disabled = !anyManual;
+}
+
+/** Release one suggestable field back to auto: stop treating it as
+ * user-owned and recompute suggestions. applyProductSuggestions() only
+ * ever writes to fields NOT in userTouched, so every other manual override
+ * is left completely alone. */
+function resetFieldToAuto(field) {
+  if (!SUGGESTABLE_FIELDS.includes(field)) return;
+  userTouched.delete(field);
+  applyProductSuggestions();
+  syncSuggestableFieldAffordances();
+}
+
+function resetAllToAuto() {
+  userTouched.clear();
+  applyProductSuggestions();
+  syncSuggestableFieldAffordances();
+}
+
+for (const btn of document.querySelectorAll(".reset-auto-btn")) {
+  btn.addEventListener("click", () => resetFieldToAuto(btn.dataset.field));
+}
+els.resetAllBtn?.addEventListener("click", resetAllToAuto);
 
 /** On load, if the URL carries a params-in-URL link (see urlState.js),
  * populate the tray/product forms from it BEFORE the first build -- the
@@ -133,6 +186,7 @@ function applyURLParamsToForm() {
   els.productType.dispatchEvent(new Event("change", { bubbles: true }));
   els.distributeBy.dispatchEvent(new Event("change", { bubbles: true }));
   els.trayForm.elements.longAxis.dispatchEvent(new Event("change", { bubbles: true }));
+  syncSuggestableFieldAffordances();
 }
 
 let lastValidParams = null; // §3 input-shaped params, ready for buildTray
@@ -215,6 +269,7 @@ els.trayForm.addEventListener("input", (event) => {
   if (SUGGESTABLE_FIELDS.includes(name)) {
     userTouched.add(name);
     event.target.classList.remove("suggested");
+    syncSuggestableFieldAffordances();
   }
   if (name === "pitch") {
     applyPitchEdit();
@@ -810,12 +865,15 @@ updateDimsOverlay();
 // exact tray/product on the phone, which rebuilds it locally from the URL
 // params. No upload, no backend, no file transfer. The in-app "View in AR"
 // button (model-viewer's own, auto-hidden when the device/browser can't do
-// AR) launches Scene Viewer on Android; iOS gets no ios-src USDZ yet, so it
-// degrades to the interactive 3D preview instead of a broken AR button --
-// see the note rendered under the model.
+// AR) launches Scene Viewer on Android via the GLB, and AR Quick Look on iOS
+// SAFARI via a client-side-generated USDZ (see arExport.js). Apple restricts
+// launching Quick Look to Safari itself -- Chrome/Firefox/etc on iOS are all
+// WebKit under the hood but cannot trigger it, so those get an inline note
+// pointing them at Safari instead of a silently-broken AR button.
 let arPanelOpen = false;
 let arTarget = "tray";
 let currentModelObjectUrl = null;
+let currentUsdzObjectUrl = null;
 
 async function ensureModelViewerLoaded() {
   if (!customElements.get("model-viewer")) {
@@ -828,11 +886,57 @@ async function ensureModelViewerLoaded() {
   }
 }
 
+/** All iOS browsers (Chrome/Firefox/Edge included) run on WebKit, but only
+ * actual Safari can hand off to AR Quick Look -- Apple reserves that OS
+ * capability to Safari itself. Chrome/Firefox/etc on iOS identify via
+ * CriOS/FxiOS/EdgiOS/OPiOS tokens Safari's own UA never has. iPadOS reports
+ * as "MacIntel" in its UA, distinguished from a real Mac by touch support. */
+function detectIOSBrowser() {
+  const ua = navigator.userAgent;
+  const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  if (!isIOS) return { isIOS: false, isSafari: false };
+  const isSafari = /Safari/.test(ua) && !/CriOS|FxiOS|EdgiOS|OPiOS|Chrome|Android/.test(ua);
+  return { isIOS: true, isSafari };
+}
+
+/** Static per-session (device/browser doesn't change mid-visit) -- set once
+ * when the panel first opens. */
+function renderArNote() {
+  const { isIOS, isSafari } = detectIOSBrowser();
+  if (isIOS && !isSafari) {
+    els.arNote.className = "ar-note ios-guidance";
+    els.arNote.textContent = "";
+    const span = document.createElement("span");
+    span.textContent = "On iPhone, AR opens in Safari — open this link in Safari to place it in your space.";
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn ar-note-copy-btn";
+    btn.textContent = "Copy link";
+    btn.addEventListener("click", () => els.arCopyLinkBtn.click()); // reuse the existing copy-link handler
+    els.arNote.append(span, btn);
+    return;
+  }
+  els.arNote.className = "ar-note";
+  els.arNote.textContent =
+    isIOS && isSafari
+      ? "Tap the AR icon in the viewer to place this in your space with AR Quick Look."
+      : "Android (Chrome): tap the AR icon in the viewer to place this in your space. Desktop: rotate & zoom the 3D model above.";
+}
+
+/** Whether "Show product fill" is meaningful right now (tray target + a
+ * configured product) -- disabled and force-unchecked otherwise. */
+function syncArFillToggleAvailability() {
+  const available = arTarget === "tray" && !!lastFillSpec;
+  els.arFillToggle.disabled = !available;
+  if (!available) els.arFillToggle.checked = false;
+}
+
 function setArTarget(target) {
   arTarget = target;
   for (const b of els.arTargetSeg.querySelectorAll(".seg-btn")) {
     b.classList.toggle("on", b.dataset.segValue === target);
   }
+  syncArFillToggleAvailability();
   refreshARModel();
 }
 
@@ -843,19 +947,90 @@ for (const btn of els.arTargetSeg.querySelectorAll(".seg-btn")) {
   });
 }
 
-/** Export the currently-selected target (tray or product) as a display-only
- * GLB and point model-viewer at it. Never touches the STL/STEP export path
- * (worker.js) -- entirely separate three.js-side geometry (see arExport.js). */
+els.arFillToggle?.addEventListener("change", () => {
+  if (arPanelOpen) refreshARModel(); // re-export the GLB/USDZ with/without fill baked in
+});
+
+/** Preview-only overlay (never baked into the exported GLB/USDZ -- native
+ * room-placement AR renders model geometry only and can't show HTML/SVG, so
+ * this only affects the in-panel <model-viewer>). Uses model-viewer's
+ * declarative hotspot API: a slotted child tracks a 3D point on the model
+ * as the camera orbits, no manual screen-space projection needed. Position
+ * is expressed in the exported GLB's own space -- mirror wrapForExport()'s
+ * transform (mm -> m, then Z-up -> Y-up via (x,y,z) -> (x,z,-y)). */
+function mmToGlbPosition(x, y, z) {
+  return `${(x * 0.001).toFixed(4)} ${(z * 0.001).toFixed(4)} ${(-y * 0.001).toFixed(4)}`;
+}
+
+function computeArDimsLabel() {
+  if (arTarget === "product") {
+    const spec = productSpecForExport();
+    if (!spec) return null;
+    if (spec.productType === "rectangle") {
+      return { text: `${spec.width}×${spec.height}×${spec.thickness}mm`, posMM: [spec.thickness / 2, spec.width / 2, spec.height / 2] };
+    }
+    return { text: `⌀${spec.diameter}×${spec.thickness}mm`, posMM: [spec.thickness / 2, spec.diameter / 2, spec.diameter / 2] };
+  }
+  if (!lastDerived) return null;
+  const box = viewer.getTrayBoundingBox();
+  if (!box) return null;
+  return {
+    text: `${lastDerived.outerL.toFixed(1)} × ${lastDerived.outerW.toFixed(1)} × ${lastDerived.overallH.toFixed(1)}mm`,
+    posMM: [box.max.x, box.max.y, box.max.z],
+  };
+}
+
+function updateArDimsHotspot() {
+  if (!customElements.get("model-viewer")) return;
+  const data = els.arDimsToggle.checked ? computeArDimsLabel() : null;
+  if (!data) {
+    els.arDimsHotspot.classList.add("hidden");
+    return;
+  }
+  els.arDimsHotspot.classList.remove("hidden");
+  els.arDimsHotspot.textContent = data.text;
+  const position = mmToGlbPosition(...data.posMM);
+  els.arDimsHotspot.dataset.position = position;
+  els.arModelViewer.updateHotspot({ name: "dims", position, normal: "0 1 0" });
+}
+
+els.arDimsToggle?.addEventListener("change", updateArDimsHotspot);
+
+/** Export the currently-selected target (tray, optionally with the product
+ * fill baked in, or a standalone product) as a display-only GLB (Android /
+ * desktop preview) and, on iOS Safari only, an additional USDZ (AR Quick
+ * Look). Never touches the STL/STEP export path (worker.js) -- entirely
+ * separate three.js-side geometry (see arExport.js). */
 async function refreshARModel() {
   if (!arPanelOpen) return;
   els.arViewerStatus.textContent = "Preparing 3D model...";
   els.arViewerStatus.classList.remove("hidden");
   try {
     await ensureModelViewerLoaded();
-    const blob = arTarget === "product" ? await exportProductGLB(productSpecForExport()) : await exportTrayGLB(viewer);
+    const includeFill = arTarget === "tray" && els.arFillToggle.checked && !!lastFillSpec;
+    const spec = arTarget === "product" ? productSpecForExport() : null;
+
+    const glbBlob = arTarget === "product" ? await exportProductGLB(spec) : await exportTrayGLB(viewer, includeFill);
     if (currentModelObjectUrl) URL.revokeObjectURL(currentModelObjectUrl);
-    currentModelObjectUrl = URL.createObjectURL(blob);
+    currentModelObjectUrl = URL.createObjectURL(glbBlob);
     els.arModelViewer.src = currentModelObjectUrl;
+
+    // USDZ is only ever consulted by iOS Safari's AR button -- skip
+    // generating it anywhere else (real cost: it's an uncompressed zip, can
+    // run several MB for a detailed tray).
+    const { isIOS, isSafari } = detectIOSBrowser();
+    if (isIOS && isSafari) {
+      const usdzBlob = arTarget === "product" ? await exportProductUSDZ(spec) : await exportTrayUSDZ(viewer, includeFill);
+      if (currentUsdzObjectUrl) URL.revokeObjectURL(currentUsdzObjectUrl);
+      currentUsdzObjectUrl = URL.createObjectURL(usdzBlob);
+      els.arModelViewer.iosSrc = currentUsdzObjectUrl;
+    } else if (currentUsdzObjectUrl) {
+      URL.revokeObjectURL(currentUsdzObjectUrl);
+      currentUsdzObjectUrl = null;
+      els.arModelViewer.iosSrc = null;
+    }
+
+    updateArDimsHotspot();
     els.arViewerStatus.classList.add("hidden");
   } catch (err) {
     els.arViewerStatus.textContent =
@@ -886,6 +1061,8 @@ async function openARPanel() {
   els.arPanelOverlay.classList.remove("hidden");
   els.arTargetProductBtn.disabled = !lastFillSpec;
   if (!lastFillSpec && arTarget === "product") arTarget = "tray";
+  renderArNote();
+  syncArFillToggleAvailability();
   setArTarget(arTarget);
   await refreshARQr();
 }
@@ -901,6 +1078,7 @@ function closeARPanel() {
 function refreshARPanelIfOpen() {
   if (!arPanelOpen) return;
   els.arTargetProductBtn.disabled = !lastFillSpec;
+  syncArFillToggleAvailability();
   if (!lastFillSpec && arTarget === "product") {
     setArTarget("tray"); // triggers refreshARModel() itself
   } else {
@@ -916,6 +1094,41 @@ els.arPanelOverlay?.addEventListener("click", (event) => {
 });
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && arPanelOpen) closeARPanel();
+});
+
+// Redundant close paths for mobile, where the header close button can end
+// up hard to reach under the browser's own chrome: swipe-down-to-dismiss,
+// started only from the drag-handle/header zone so it doesn't fight
+// scrolling the panel's own content (QR section etc. further down).
+let arSwipeStartY = null;
+let arSwipeCurrentY = null;
+
+els.arPanel?.addEventListener(
+  "touchstart",
+  (event) => {
+    if (event.touches.length !== 1) return;
+    const rect = els.arPanel.getBoundingClientRect();
+    if (event.touches[0].clientY - rect.top > 60) return;
+    arSwipeStartY = event.touches[0].clientY;
+    arSwipeCurrentY = arSwipeStartY;
+  },
+  { passive: true }
+);
+
+els.arPanel?.addEventListener(
+  "touchmove",
+  (event) => {
+    if (arSwipeStartY === null) return;
+    arSwipeCurrentY = event.touches[0].clientY;
+  },
+  { passive: true }
+);
+
+els.arPanel?.addEventListener("touchend", () => {
+  if (arSwipeStartY === null) return;
+  if (arSwipeCurrentY - arSwipeStartY > 60) closeARPanel();
+  arSwipeStartY = null;
+  arSwipeCurrentY = null;
 });
 
 els.arCopyLinkBtn?.addEventListener("click", async () => {
@@ -999,6 +1212,7 @@ window.__cookieTray = {
   openARPanel,
   closeARPanel,
   setArTarget,
+  detectIOSBrowser,
   get arPanelOpen() { return arPanelOpen; },
   get arTarget() { return arTarget; },
 };
