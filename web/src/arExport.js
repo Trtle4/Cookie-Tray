@@ -20,12 +20,54 @@ const usdzExporter = new USDZExporter();
 /** glTF/USDZ convention is meters + Y-up; this app models in millimeters
  * with Z-up (see viewer.js: camera.up = (0,0,1)). Wrapping in a group with
  * this scale+rotation converts on export without touching the live scene
- * (the source object is cloned, never reparented). */
-function wrapForExport(object3D) {
+ * (the source object is cloned, never reparented) -- the rotation also
+ * puts the model's footprint centered on X/Z with its base at Y=0 (ground
+ * plane), since the source geometry is already centered on X/Y with its
+ * base at Z=0.
+ *
+ * updateMatrixWorld(true) is not optional here: this wrapper is never
+ * added to a rendered scene, so matrixWorld is never recomputed on its
+ * own (three.js only refreshes it during a render pass or an explicit
+ * call). GLTFExporter happened to still work without this -- it reads
+ * each node's own LOCAL .matrix and rebuilds the hierarchy -- but
+ * USDZExporter's buildXform() reads object.matrixWorld directly. Without
+ * this call that stayed a stale identity matrix (copied as-is from the
+ * live, untransformed viewport scene), so the USDZ handed to iOS AR
+ * Quick Look shipped raw Z-up millimeters with NO rotation and NO mm->m
+ * scale: the model rendered ~1000x oversized and lying on its side,
+ * exactly the reported bug. The in-panel <model-viewer> preview and
+ * Android Scene Viewer never showed this because both consume the GLB,
+ * not the USDZ. */
+function wrapForExport(object3D, { layFlat = false } = {}) {
   const wrapper = new THREE.Group();
-  wrapper.rotation.x = -Math.PI / 2; // Z-up -> Y-up
+  wrapper.rotation.x = -Math.PI / 2; // Z-up -> Y-up, base-down (the correct AR default)
+  if (layFlat) {
+    // AR-display-only alternate view, opt-in via the panel's "Lay flat"
+    // toggle: tips an additional 90 deg about the (now-horizontal, post
+    // base-rotation) local X axis so it rests on its long side instead of
+    // its base. Applied on top of the correct base-down transform above,
+    // never a substitute for it -- see wrapForExport's centering step
+    // below for why this stays correctly grounded after the extra tip.
+    wrapper.rotateX(Math.PI / 2);
+  }
   wrapper.scale.setScalar(0.001); // mm -> m
   wrapper.add(object3D);
+  wrapper.updateMatrixWorld(true);
+
+  // Re-center the footprint on X/Z and rest the base on the ground plane
+  // (Y=0), computed from the actual transformed bounds rather than assumed
+  // from the source mesh's own authoring symmetry. AR anchors the model's
+  // origin at the tapped surface point, so any pivot drift here is exactly
+  // what makes a model "place behind where I point" -- this also keeps the
+  // optional lay-flat tip above resting on the ground instead of sinking
+  // through it (tipping about the origin would otherwise leave half the
+  // model below Y=0).
+  const box = new THREE.Box3().setFromObject(wrapper);
+  if (isFinite(box.min.x)) {
+    const center = box.getCenter(new THREE.Vector3());
+    wrapper.position.set(-center.x, -box.min.y, -center.z);
+    wrapper.updateMatrixWorld(true);
+  }
   return wrapper;
 }
 
@@ -57,12 +99,12 @@ function buildTrayExportScene(viewer, includeFill) {
   return scene;
 }
 
-export async function exportTrayGLB(viewer, includeFill = false) {
-  return toGLBBlob(wrapForExport(buildTrayExportScene(viewer, includeFill)));
+export async function exportTrayGLB(viewer, includeFill = false, layFlat = false) {
+  return toGLBBlob(wrapForExport(buildTrayExportScene(viewer, includeFill), { layFlat }));
 }
 
-export async function exportTrayUSDZ(viewer, includeFill = false) {
-  return toUSDZBlob(wrapForExport(buildTrayExportScene(viewer, includeFill)));
+export async function exportTrayUSDZ(viewer, includeFill = false, layFlat = false) {
+  return toUSDZBlob(wrapForExport(buildTrayExportScene(viewer, includeFill), { layFlat }));
 }
 
 /** Build a single centered product-unit mesh (round cylinder or rounded-edge
@@ -89,17 +131,17 @@ function buildProductMesh(spec) {
   return mesh;
 }
 
-export async function exportProductGLB(spec) {
+export async function exportProductGLB(spec, layFlat = false) {
   const mesh = buildProductMesh(spec);
-  const blob = await toGLBBlob(wrapForExport(mesh));
+  const blob = await toGLBBlob(wrapForExport(mesh, { layFlat }));
   mesh.geometry.dispose();
   mesh.material.dispose();
   return blob;
 }
 
-export async function exportProductUSDZ(spec) {
+export async function exportProductUSDZ(spec, layFlat = false) {
   const mesh = buildProductMesh(spec);
-  const blob = await toUSDZBlob(wrapForExport(mesh));
+  const blob = await toUSDZBlob(wrapForExport(mesh, { layFlat }));
   mesh.geometry.dispose();
   mesh.material.dispose();
   return blob;

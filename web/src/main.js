@@ -62,6 +62,7 @@ const els = {
   arViewerStatus: document.getElementById("ar-viewer-status"),
   arFillToggle: document.getElementById("ar-fill-toggle"),
   arDimsToggle: document.getElementById("ar-dims-toggle"),
+  arFlatToggle: document.getElementById("ar-flat-toggle"),
   arDimsHotspot: document.getElementById("ar-dims-hotspot"),
   arNote: document.getElementById("ar-note"),
   arQrCanvas: document.getElementById("ar-qr-canvas"),
@@ -919,8 +920,8 @@ function renderArNote() {
   els.arNote.className = "ar-note";
   els.arNote.textContent =
     isIOS && isSafari
-      ? "Tap the AR icon in the viewer to place this in your space with AR Quick Look."
-      : "Android (Chrome): tap the AR icon in the viewer to place this in your space. Desktop: rotate & zoom the 3D model above.";
+      ? "Tap the AR icon in the viewer to place this in your space with AR Quick Look. Drag the model to move it, or exit AR and tap the icon again to start over."
+      : "Android (Chrome): tap the AR icon in the viewer to place this in your space, then drag to move it. Exit AR and tap the icon again to start over. Desktop: rotate & zoom the 3D model above.";
 }
 
 /** Whether "Show product fill" is meaningful right now (tray target + a
@@ -949,6 +950,10 @@ for (const btn of els.arTargetSeg.querySelectorAll(".seg-btn")) {
 
 els.arFillToggle?.addEventListener("change", () => {
   if (arPanelOpen) refreshARModel(); // re-export the GLB/USDZ with/without fill baked in
+});
+
+els.arFlatToggle?.addEventListener("change", () => {
+  if (arPanelOpen) refreshARModel(); // re-export laid flat vs. the upright (base-down) default
 });
 
 /** Preview-only overlay (never baked into the exported GLB/USDZ -- native
@@ -982,7 +987,11 @@ function computeArDimsLabel() {
 
 function updateArDimsHotspot() {
   if (!customElements.get("model-viewer")) return;
-  const data = els.arDimsToggle.checked ? computeArDimsLabel() : null;
+  // computeArDimsLabel()'s position assumes the default base-down export
+  // transform; the "Lay flat" toggle applies an extra tip + re-centering
+  // translation (see arExport.js) that this label doesn't account for, so
+  // suppress it rather than show it drifted off the model's actual corner.
+  const data = els.arDimsToggle.checked && !els.arFlatToggle?.checked ? computeArDimsLabel() : null;
   if (!data) {
     els.arDimsHotspot.classList.add("hidden");
     return;
@@ -1077,11 +1086,12 @@ async function refreshARModel() {
     console.debug("[AR] <model-viewer> ready");
 
     const includeFill = arTarget === "tray" && els.arFillToggle.checked && !!lastFillSpec;
+    const layFlat = !!els.arFlatToggle?.checked;
     const spec = arTarget === "product" ? productSpecForExport() : null;
 
-    console.debug(`[AR] exporting GLB (target=${arTarget}, includeFill=${includeFill})...`);
+    console.debug(`[AR] exporting GLB (target=${arTarget}, includeFill=${includeFill}, layFlat=${layFlat})...`);
     const glbBlob = await withTimeout(
-      arTarget === "product" ? exportProductGLB(spec) : exportTrayGLB(viewer, includeFill),
+      arTarget === "product" ? exportProductGLB(spec, layFlat) : exportTrayGLB(viewer, includeFill, layFlat),
       AR_STEP_TIMEOUT_MS,
       "Exporting the 3D model",
     );
@@ -1100,7 +1110,7 @@ async function refreshARModel() {
     if (isIOS && isSafari) {
       console.debug("[AR] exporting USDZ for AR Quick Look...");
       const usdzBlob = await withTimeout(
-        arTarget === "product" ? exportProductUSDZ(spec) : exportTrayUSDZ(viewer, includeFill),
+        arTarget === "product" ? exportProductUSDZ(spec, layFlat) : exportTrayUSDZ(viewer, includeFill, layFlat),
         AR_STEP_TIMEOUT_MS,
         "Exporting the AR Quick Look model",
       );
