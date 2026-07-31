@@ -996,6 +996,70 @@ function updateArDimsHotspot() {
 
 els.arDimsToggle?.addEventListener("change", updateArDimsHotspot);
 
+// Every async step of the AR flow (dynamic import, GLB/USDZ export,
+// model-viewer's own parse) is wrapped with a timeout below -- a promise
+// that stalls (slow/broken network fetching the model-viewer chunk, a
+// malformed GLB model-viewer never finishes parsing, etc.) would otherwise
+// leave "Preparing 3D model..." showing forever instead of surfacing an
+// error the user can act on.
+const AR_STEP_TIMEOUT_MS = 25000;
+
+function withTimeout(promise, ms, label) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s`)), ms);
+    promise.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
+
+/** Resolves once <model-viewer> actually finishes loading/parsing the
+ * model just assigned to `.src` (its "load" event), rejects on its "error"
+ * event or after `timeoutMs` -- so a blob URL that model-viewer can't
+ * render (vs. one JS merely handed to it) still surfaces visibly. */
+function waitForModelViewerLoad(mv, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const cleanup = () => {
+      clearTimeout(timer);
+      mv.removeEventListener("load", onLoad);
+      mv.removeEventListener("error", onError);
+    };
+    const onLoad = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve();
+    };
+    const onError = (ev) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(new Error(ev?.detail?.type ? `model-viewer couldn't load the model (${ev.detail.type})` : "model-viewer couldn't load the model"));
+    };
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(new Error(`model-viewer did not finish loading after ${Math.round(timeoutMs / 1000)}s`));
+    }, timeoutMs);
+    mv.addEventListener("load", onLoad, { once: true });
+    mv.addEventListener("error", onError, { once: true });
+  });
+}
+
+// Guards against a stale refresh clobbering a newer one's UI when the user
+// switches AR target (or toggles fill) again before the first export
+// finishes -- each call only touches the DOM if it's still the latest.
+let arRefreshSeq = 0;
+
 /** Export the currently-selected target (tray, optionally with the product
  * fill baked in, or a standalone product) as a display-only GLB (Android /
  * desktop preview) and, on iOS Safari only, an additional USDZ (AR Quick
@@ -1003,16 +1067,30 @@ els.arDimsToggle?.addEventListener("change", updateArDimsHotspot);
  * separate three.js-side geometry (see arExport.js). */
 async function refreshARModel() {
   if (!arPanelOpen) return;
+  const seq = ++arRefreshSeq;
   els.arViewerStatus.textContent = "Preparing 3D model...";
   els.arViewerStatus.classList.remove("hidden");
   try {
-    await ensureModelViewerLoaded();
+    console.debug("[AR] loading <model-viewer>...");
+    await withTimeout(ensureModelViewerLoaded(), AR_STEP_TIMEOUT_MS, "Loading the 3D viewer");
+    if (seq !== arRefreshSeq) return;
+    console.debug("[AR] <model-viewer> ready");
+
     const includeFill = arTarget === "tray" && els.arFillToggle.checked && !!lastFillSpec;
     const spec = arTarget === "product" ? productSpecForExport() : null;
 
-    const glbBlob = arTarget === "product" ? await exportProductGLB(spec) : await exportTrayGLB(viewer, includeFill);
+    console.debug(`[AR] exporting GLB (target=${arTarget}, includeFill=${includeFill})...`);
+    const glbBlob = await withTimeout(
+      arTarget === "product" ? exportProductGLB(spec) : exportTrayGLB(viewer, includeFill),
+      AR_STEP_TIMEOUT_MS,
+      "Exporting the 3D model",
+    );
+    if (seq !== arRefreshSeq) return;
+    console.debug(`[AR] GLB export done (${glbBlob.size} bytes)`);
+
     if (currentModelObjectUrl) URL.revokeObjectURL(currentModelObjectUrl);
     currentModelObjectUrl = URL.createObjectURL(glbBlob);
+    const modelViewerLoaded = waitForModelViewerLoad(els.arModelViewer, AR_STEP_TIMEOUT_MS);
     els.arModelViewer.src = currentModelObjectUrl;
 
     // USDZ is only ever consulted by iOS Safari's AR button -- skip
@@ -1020,7 +1098,14 @@ async function refreshARModel() {
     // run several MB for a detailed tray).
     const { isIOS, isSafari } = detectIOSBrowser();
     if (isIOS && isSafari) {
-      const usdzBlob = arTarget === "product" ? await exportProductUSDZ(spec) : await exportTrayUSDZ(viewer, includeFill);
+      console.debug("[AR] exporting USDZ for AR Quick Look...");
+      const usdzBlob = await withTimeout(
+        arTarget === "product" ? exportProductUSDZ(spec) : exportTrayUSDZ(viewer, includeFill),
+        AR_STEP_TIMEOUT_MS,
+        "Exporting the AR Quick Look model",
+      );
+      if (seq !== arRefreshSeq) return;
+      console.debug(`[AR] USDZ export done (${usdzBlob.size} bytes)`);
       if (currentUsdzObjectUrl) URL.revokeObjectURL(currentUsdzObjectUrl);
       currentUsdzObjectUrl = URL.createObjectURL(usdzBlob);
       els.arModelViewer.iosSrc = currentUsdzObjectUrl;
@@ -1030,9 +1115,16 @@ async function refreshARModel() {
       els.arModelViewer.iosSrc = null;
     }
 
+    console.debug("[AR] waiting for <model-viewer> to report load...");
+    await modelViewerLoaded;
+    if (seq !== arRefreshSeq) return;
+    console.debug("[AR] <model-viewer> reported load; model is visible");
+
     updateArDimsHotspot();
     els.arViewerStatus.classList.add("hidden");
   } catch (err) {
+    if (seq !== arRefreshSeq) return; // superseded by a newer refresh -- don't clobber its UI
+    console.error("[AR] failed to prepare 3D model:", err);
     els.arViewerStatus.textContent =
       arTarget === "product" && !lastFillSpec ? "No product configured yet." : `Couldn't prepare model: ${err.message}`;
     els.arViewerStatus.classList.remove("hidden");

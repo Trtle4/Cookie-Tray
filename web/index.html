@@ -22,8 +22,8 @@
         </div>
         <div class="spacer"></div>
         <span id="build-status"><span class="dot"></span><span id="build-status-text">Loading...</span></span>
-        <button type="button" class="btn icon-btn" id="ar-share-btn" title="View on phone / AR" aria-label="View on phone or in AR" disabled>
-          <span aria-hidden="true">&#9974;</span>
+        <button type="button" class="btn" id="ar-share-btn" title="View on phone / AR" aria-label="View on phone / AR" disabled>
+          <span class="btn-label-full">View in </span>AR
         </button>
         <div id="export-control">
           <div class="seg" id="export-target-seg">
@@ -264,8 +264,6 @@
         </aside>
 
         <section id="viewport">
-          <div id="viewport-grid"></div>
-
           <div id="viewport-toolbar">
             <div id="camera-buttons" class="toolbar-group">
               <button type="button" class="cam-btn" data-view="iso">Iso</button>
@@ -298,17 +296,21 @@
             </div>
           </div>
 
-          <canvas id="three-canvas"></canvas>
-          <svg class="dims-overlay" id="dims-overlay" aria-hidden="true"></svg>
+          <div id="viewport-canvas">
+            <div id="viewport-grid"></div>
 
-          <div id="status-overlay">Loading OpenCASCADE...</div>
+            <canvas id="three-canvas"></canvas>
+            <svg class="dims-overlay" id="dims-overlay" aria-hidden="true"></svg>
 
-          <div class="titleblock" id="titleblock">
-            <div class="tbhead"><span id="tb-title">Cookie Tray</span><span id="tb-cells">3-CELL</span></div>
-            <div id="tb-rows"></div>
+            <div id="status-overlay">Loading OpenCASCADE...</div>
+
+            <div class="titleblock" id="titleblock">
+              <div class="tbhead"><span id="tb-title">Cookie Tray</span><span id="tb-cells">3-CELL</span></div>
+              <div id="tb-rows"></div>
+            </div>
+
+            <div class="scalechip" id="view-chip">Iso view · mm</div>
           </div>
-
-          <div class="scalechip" id="view-chip">Iso view · mm</div>
         </section>
 
         <!-- mobile-only: spec drops below the render instead of floating over it -->

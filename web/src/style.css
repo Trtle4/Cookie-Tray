@@ -223,6 +223,20 @@ input,
   flex: none;
 }
 
+/* Labeled like the other header controls (Tray/Product, STL/STEP) rather
+ * than a lone icon -- min 44px tap target on all sizes since it's the one
+ * header button people reach for on a phone. Deliberately NOT display:flex:
+ * flex containers drop whitespace-only text nodes between children, which
+ * ate the space in "View in AR" (the STL/STEP buttons hit this same
+ * "<span>Export </span>STL" pattern and stay plain inline-block for the
+ * same reason). */
+#ar-share-btn {
+  min-height: 44px;
+  min-width: 44px;
+  line-height: 26px;
+  flex: none;
+}
+
 /* ---------- body ---------- */
 main {
   flex: 1;
@@ -577,6 +591,16 @@ main {
   flex-direction: column;
 }
 
+/* Groups the canvas + its overlays so the toolbar (a sibling, preceding it
+ * in DOM order) can dock in normal flow above it on mobile without the
+ * canvas's own inset:0 fighting for the same space -- see the <=820px
+ * override below. On desktop this exactly fills #viewport, identical to
+ * before this wrapper existed. */
+#viewport-canvas {
+  position: absolute;
+  inset: 0;
+}
+
 #viewport-grid {
   position: absolute;
   inset: 0;
@@ -890,10 +914,26 @@ main {
     padding: 4px 10px;
   }
 
+  /* Docked as a static bar in normal flow directly above the canvas,
+   * instead of floating over it -- floating hid much of the tray behind
+   * the buttons on narrow screens. #viewport-canvas (flex: 1) then fills
+   * whatever height remains below it, so the model gets the full reclaimed
+   * area rather than being shrunk/zoomed to dodge the toolbar. */
   #viewport-toolbar {
-    top: 10px;
+    position: static;
+    left: auto;
+    transform: none;
+    top: auto;
+    margin: 8px auto 8px;
     padding: 4px;
     gap: 4px;
+  }
+
+  #viewport-canvas {
+    position: relative;
+    inset: auto;
+    flex: 1;
+    min-height: 0;
   }
 
   #section-slider {
@@ -1003,10 +1043,10 @@ main {
     margin-right: auto;
   }
 
+  /* "View in " prefix drops (see .btn-label-full above) -- "AR" alone
+   * stays legible at a 44px min tap target without crowding the header. */
   #ar-share-btn {
-    width: 44px;
-    height: 44px;
-    font-size: 18px;
+    padding: 8px 12px;
   }
 
   #export-control {
@@ -1169,6 +1209,14 @@ main {
   background: var(--panel-2);
   border-radius: var(--r-sm);
   z-index: 1;
+}
+
+/* This rule was missing entirely -- refreshARModel() correctly toggled the
+ * "hidden" class off once the model loaded, but nothing ever hid the
+ * element, so "Preparing 3D model..." stayed pinned over the (successfully
+ * loaded) <model-viewer> underneath it forever. */
+#ar-viewer-status.hidden {
+  display: none;
 }
 
 #ar-model-viewer {
