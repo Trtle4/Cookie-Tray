@@ -1088,10 +1088,15 @@ async function refreshARModel() {
     const includeFill = arTarget === "tray" && els.arFillToggle.checked && !!lastFillSpec;
     const layFlat = !!els.arFlatToggle?.checked;
     const spec = arTarget === "product" ? productSpecForExport() : null;
+    // Built fresh here rather than reused from viewer.fillGroup, which is
+    // only populated while the main viewport's OWN "Fill" toggle is on --
+    // a separate control from this panel's "Show product fill" toggle. The
+    // AR fill needs to reflect ITS OWN toggle regardless of the viewport's.
+    const arFillGroup = includeFill && lastValidParams ? buildFillGroup({ params: lastValidParams, ...lastFillSpec }) : null;
 
-    console.debug(`[AR] exporting GLB (target=${arTarget}, includeFill=${includeFill}, layFlat=${layFlat})...`);
+    console.debug(`[AR] exporting GLB (target=${arTarget}, includeFill=${!!arFillGroup}, layFlat=${layFlat})...`);
     const glbBlob = await withTimeout(
-      arTarget === "product" ? exportProductGLB(spec, layFlat) : exportTrayGLB(viewer, includeFill, layFlat),
+      arTarget === "product" ? exportProductGLB(spec, layFlat) : exportTrayGLB(viewer, arFillGroup, layFlat),
       AR_STEP_TIMEOUT_MS,
       "Exporting the 3D model",
     );
@@ -1110,7 +1115,7 @@ async function refreshARModel() {
     if (isIOS && isSafari) {
       console.debug("[AR] exporting USDZ for AR Quick Look...");
       const usdzBlob = await withTimeout(
-        arTarget === "product" ? exportProductUSDZ(spec, layFlat) : exportTrayUSDZ(viewer, includeFill, layFlat),
+        arTarget === "product" ? exportProductUSDZ(spec, layFlat) : exportTrayUSDZ(viewer, arFillGroup, layFlat),
         AR_STEP_TIMEOUT_MS,
         "Exporting the AR Quick Look model",
       );

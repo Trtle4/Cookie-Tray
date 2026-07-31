@@ -38,17 +38,33 @@ const usdzExporter = new USDZExporter();
  * exactly the reported bug. The in-panel <model-viewer> preview and
  * Android Scene Viewer never showed this because both consume the GLB,
  * not the USDZ. */
-function wrapForExport(object3D, { layFlat = false } = {}) {
+function wrapForExport(object3D, { layFlat = false, layFlatAxis = "x" } = {}) {
   const wrapper = new THREE.Group();
   wrapper.rotation.x = -Math.PI / 2; // Z-up -> Y-up, base-down (the correct AR default)
   if (layFlat) {
     // AR-display-only alternate view, opt-in via the panel's "Lay flat"
-    // toggle: tips an additional 90 deg about the (now-horizontal, post
-    // base-rotation) local X axis so it rests on its long side instead of
-    // its base. Applied on top of the correct base-down transform above,
-    // never a substitute for it -- see wrapForExport's centering step
-    // below for why this stays correctly grounded after the extra tip.
-    wrapper.rotateX(Math.PI / 2);
+    // toggle, applied on top of the correct base-down transform above --
+    // never a substitute for it. Which local axis to tip about depends on
+    // what "flat" means for the shape being exported, so callers choose:
+    //
+    // - layFlatAxis "x" (tray): tips 90 deg about the now-horizontal local
+    //   X axis so it rests on its long side instead of its base.
+    // - layFlatAxis "y" (product): buildProductMesh's default orientation
+    //   already stands the product on edge (its thickness axis horizontal,
+    //   along local X, matching fill.js's packed-row convention) -- tipping
+    //   about X would just spin it around that same horizontal axis and do
+    //   nothing visible. Rotating -90 deg about local Y instead swings the
+    //   thickness axis from horizontal to vertical (world Y), landing the
+    //   product flat on its broad face with both footprint dimensions
+    //   staying horizontal, for round AND rectangle products alike.
+    //
+    // See wrapForExport's centering step below for why this stays
+    // correctly grounded after either tip.
+    if (layFlatAxis === "y") {
+      wrapper.rotateY(-Math.PI / 2);
+    } else {
+      wrapper.rotateX(Math.PI / 2);
+    }
   }
   wrapper.scale.setScalar(0.001); // mm -> m
   wrapper.add(object3D);
@@ -86,25 +102,29 @@ async function toUSDZBlob(wrapper) {
 }
 
 /** Deep-clones viewer.meshGroup (the tray solid + its crisp edge lines) and,
- * when `includeFill` is true and a fill overlay is currently built, also
- * clones viewer.fillGroup alongside it -- so the AR model can be viewed
- * either empty or loaded with product, matching the in-app 3D view. */
-function buildTrayExportScene(viewer, includeFill) {
+ * when `fillGroup` is given, merges a clone of it in too -- so the AR model
+ * can be viewed either empty or loaded with product, matching the in-app 3D
+ * view. `fillGroup` is passed in explicitly by the caller (built fresh via
+ * fill.js's buildFillGroup()) rather than read from viewer.fillGroup: the
+ * live viewport's fill overlay is only populated while the main viewport's
+ * OWN "Fill" toggle is on, which is a separate, unrelated control from the
+ * AR panel's "Show product fill" toggle -- reading viewer.fillGroup here
+ * meant AR fill silently stayed empty whenever the viewport toggle happened
+ * to be off, even with the AR toggle on. */
+function buildTrayExportScene(viewer, fillGroup) {
   if (!viewer.meshGroup.children.length) throw new Error("No tray built yet");
   const scene = new THREE.Group();
   scene.add(viewer.meshGroup.clone(true));
-  if (includeFill && viewer.fillGroup.children.length) {
-    scene.add(viewer.fillGroup.clone(true));
-  }
+  if (fillGroup) scene.add(fillGroup.clone(true));
   return scene;
 }
 
-export async function exportTrayGLB(viewer, includeFill = false, layFlat = false) {
-  return toGLBBlob(wrapForExport(buildTrayExportScene(viewer, includeFill), { layFlat }));
+export async function exportTrayGLB(viewer, fillGroup = null, layFlat = false) {
+  return toGLBBlob(wrapForExport(buildTrayExportScene(viewer, fillGroup), { layFlat }));
 }
 
-export async function exportTrayUSDZ(viewer, includeFill = false, layFlat = false) {
-  return toUSDZBlob(wrapForExport(buildTrayExportScene(viewer, includeFill), { layFlat }));
+export async function exportTrayUSDZ(viewer, fillGroup = null, layFlat = false) {
+  return toUSDZBlob(wrapForExport(buildTrayExportScene(viewer, fillGroup), { layFlat }));
 }
 
 /** Build a single centered product-unit mesh (round cylinder or rounded-edge
@@ -133,7 +153,7 @@ function buildProductMesh(spec) {
 
 export async function exportProductGLB(spec, layFlat = false) {
   const mesh = buildProductMesh(spec);
-  const blob = await toGLBBlob(wrapForExport(mesh, { layFlat }));
+  const blob = await toGLBBlob(wrapForExport(mesh, { layFlat, layFlatAxis: "y" }));
   mesh.geometry.dispose();
   mesh.material.dispose();
   return blob;
@@ -141,7 +161,7 @@ export async function exportProductGLB(spec, layFlat = false) {
 
 export async function exportProductUSDZ(spec, layFlat = false) {
   const mesh = buildProductMesh(spec);
-  const blob = await toUSDZBlob(wrapForExport(mesh, { layFlat }));
+  const blob = await toUSDZBlob(wrapForExport(mesh, { layFlat, layFlatAxis: "y" }));
   mesh.geometry.dispose();
   mesh.material.dispose();
   return blob;
