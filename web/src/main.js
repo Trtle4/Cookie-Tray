@@ -1093,6 +1093,9 @@ async function refreshARModel() {
     // a separate control from this panel's "Show product fill" toggle. The
     // AR fill needs to reflect ITS OWN toggle regardless of the viewport's.
     const arFillGroup = includeFill && lastValidParams ? buildFillGroup({ params: lastValidParams, ...lastFillSpec }) : null;
+    console.debug(
+      `[AR] fill toggle=${els.arFillToggle.checked} target=${arTarget} lastFillSpec=${!!lastFillSpec} lastValidParams=${!!lastValidParams} -> arFillGroup children=${arFillGroup ? arFillGroup.children.length : "n/a"}`,
+    );
 
     console.debug(`[AR] exporting GLB (target=${arTarget}, includeFill=${!!arFillGroup}, layFlat=${layFlat})...`);
     const glbBlob = await withTimeout(
