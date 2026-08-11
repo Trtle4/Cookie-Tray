@@ -67,7 +67,6 @@ export function rectProductGeometry(width, height, thickness, edgeRTop, edgeRBot
  * @param {number} [args.productThickness]
  * @param {number} [args.edgeRTop]
  * @param {number} [args.edgeRBot]
- * @param {number} args.endClearance
  */
 export function buildFillGroup({
   params,
@@ -80,9 +79,8 @@ export function buildFillGroup({
   productThickness,
   edgeRTop = 0,
   edgeRBot = 0,
-  endClearance,
 }) {
-  const { nCells, cellWid, cellLen, wall, divider, floor, longAxis } = params;
+  const { nCells, cellWid, wall, divider, floor, longAxis } = params;
   const pitch = cellWid + divider; // matches TrayParams.pitch: cell center-to-center spacing
   const topW = nCells * cellWid + 2 * wall + (nCells - 1) * divider;
 
@@ -126,13 +124,24 @@ export function buildFillGroup({
     geometry = new THREE.CylinderGeometry(cookieDiameter / 2, cookieDiameter / 2, renderThickness, 48);
   }
 
+  // Center the packed row in the cell's full length, not anchored to one
+  // end -- endClearance only sets the MINIMUM required cell_len (see
+  // checkProductFit in main.js), so once the user manually grows cell_len
+  // past that minimum, the extra slack is free space that should split
+  // evenly on both ends rather than piling up on one side. At exactly the
+  // auto-suggested cell_len (cellLen = cookiesPerCell*packPitch +
+  // endClearance) this produces the identical positions as the old
+  // endClearance-anchored formula -- verified algebraically, not just a
+  // coincidence -- so the common/default case is unchanged.
+  const packedRowLen = cookiesPerCell * packPitch;
+
   // Build in the canonical (long axis = X) frame, then rotate the whole
   // group exactly like buildTray does for longAxis === "Y" — keeps the fill
   // guaranteed consistent with the actual solid instead of hand-swapping x/y.
   for (let j = 0; j < nCells; j++) {
     const cy = -topW / 2 + wall + cellWid / 2 + j * pitch;
     for (let k = 0; k < cookiesPerCell; k++) {
-      const x = -cellLen / 2 + endClearance / 2 + packPitch * (k + 0.5);
+      const x = -packedRowLen / 2 + packPitch * (k + 0.5);
       const mesh = new THREE.Mesh(geometry, material);
       if (productType === "round") {
         mesh.rotation.z = Math.PI / 2; // cylinder axis default is Y -> rotate onto X
