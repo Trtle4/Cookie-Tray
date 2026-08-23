@@ -40,6 +40,8 @@ const TRAY_KEY_MAP = {
   cradleR: "cr",
   wall: "w",
   divider: "dv",
+  nCols: "nc",
+  colDivider: "cdv",
   floor: "fl",
   cornerR: "cnr",
   draftDeg: "dr",

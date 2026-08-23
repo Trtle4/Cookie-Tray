@@ -18,6 +18,8 @@ export const DEFAULTS = Object.freeze({
   cradleR: null, // defaults to cellWid / 2
   wall: 3.0, // outer-wall thickness
   divider: null, // internal cell-to-cell wall thickness; defaults to wall
+  nCols: 1, // columns: splits each cellLen-long trough into nCols end-to-end sub-cells
+  colDivider: null, // internal cell-to-cell wall thickness along the column axis; defaults to divider
   floor: 2.5,
   cornerR: 8.0,
   draftDeg: 5.0,
@@ -44,12 +46,18 @@ export function makeTrayParams(rawInput = {}) {
   if (p.divider === null || p.divider === undefined) {
     p.divider = p.wall;
   }
+  if (p.colDivider === null || p.colDivider === undefined) {
+    p.colDivider = p.divider;
+  }
 
   const errors = [];
   const warnings = [];
 
   if (!(p.nCells >= 1)) {
     errors.push({ field: "nCells", message: `n_cells must be >= 1, got ${p.nCells}` });
+  }
+  if (!(p.nCols >= 1)) {
+    errors.push({ field: "nCols", message: `n_cols must be >= 1, got ${p.nCols}` });
   }
   if (p.longAxis !== "X" && p.longAxis !== "Y") {
     errors.push({ field: "longAxis", message: `long_axis must be "X" or "Y", got ${JSON.stringify(p.longAxis)}` });
@@ -92,11 +100,16 @@ export function makeTrayParams(rawInput = {}) {
 
   // Derived values (§3 "Derived") — computed after cradle_r/divider are resolved.
   const lipT = 3 * p.nozzle;
-  const topL = p.cellLen + 2 * p.wall;
+  // Outer walls (both ends) are `wall`; the nCols-1 internal dividers
+  // between column-cells are `colDivider`. Mirrors topW below on the
+  // orthogonal axis; nCols=1 (the default) collapses this back to the
+  // original cellLen + 2*wall.
+  const topL = p.nCols * p.cellLen + 2 * p.wall + (p.nCols - 1) * p.colDivider;
   // Outer walls (both sides) are `wall`; the nCells-1 internal dividers
   // between cells are `divider`.
   const topW = p.nCells * p.cellWid + 2 * p.wall + (p.nCells - 1) * p.divider;
   const pitch = p.cellWid + p.divider; // cell center-to-center spacing
+  const colPitch = p.cellLen + p.colDivider; // column-cell center-to-center spacing
   const H = p.floor + p.cellH;
   const draftRad = (p.draftDeg * Math.PI) / 180;
   // Base inset applied by a SINGLE continuous draft over the full height H,
@@ -167,6 +180,9 @@ export function makeTrayParams(rawInput = {}) {
   if (p.divider < MIN_DIVIDER) {
     errors.push({ field: "divider", message: `divider (${p.divider}) must be >= ${MIN_DIVIDER}mm` });
   }
+  if (p.colDivider < MIN_DIVIDER) {
+    errors.push({ field: "colDivider", message: `col_divider (${p.colDivider}) must be >= ${MIN_DIVIDER}mm` });
+  }
 
   // Guard 7: lip_h and flange_t are extruded thicknesses -- zero or
   // negative has no valid interpretation and previously reached replicad
@@ -195,6 +211,7 @@ export function makeTrayParams(rawInput = {}) {
     topL,
     topW,
     pitch,
+    colPitch,
     H,
     draftOffset,
     effectiveDraftDeg,

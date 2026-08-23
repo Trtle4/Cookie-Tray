@@ -278,6 +278,12 @@ els.trayForm.addEventListener("input", (event) => {
   if (name === "divider" || name === "cellWid") {
     refreshPitchDisplay();
   }
+  if (name === "nCols") {
+    // cellLen's SUGGESTED value depends on nCols (busiest column's count) --
+    // re-run suggestions so an un-touched cellLen picks up the new split.
+    // No-op if cellLen was already manually overridden.
+    applyProductSuggestions();
+  }
   scheduleRebuild();
 });
 
@@ -354,6 +360,8 @@ function readTrayInput() {
     cradleR: raw.cradleR,
     wall: raw.wall,
     divider: raw.divider,
+    nCols: raw.nCols,
+    colDivider: raw.colDivider,
     floor: raw.floor,
     cornerR: raw.cornerR,
     draftDeg: raw.draftDeg,
@@ -397,6 +405,16 @@ function currentDivider() {
   return wallRaw !== "" ? parseFloat(wallRaw) : 0;
 }
 
+/** Columns (nCols) is a plain, directly user-set tray field -- not
+ * calculator-suggested -- but the calculator still needs its CURRENT value
+ * to size the suggested cellLen for the busiest column (see
+ * applyProductSuggestions/checkProductFit). */
+function currentNCols() {
+  const raw = els.trayForm.elements.nCols.value;
+  const n = raw !== "" ? parseInt(raw, 10) : 1;
+  return Number.isFinite(n) && n >= 1 ? n : 1;
+}
+
 /** User typed into the pitch field: back-derive divider = pitch - cellWid. */
 function applyPitchEdit() {
   const pitchRaw = els.trayForm.elements.pitch.value;
@@ -419,7 +437,7 @@ function refreshPitchDisplay() {
 function applyProductSuggestions() {
   let suggestion;
   try {
-    suggestion = suggestFromProduct(readProductInput());
+    suggestion = suggestFromProduct({ ...readProductInput(), nCols: currentNCols() });
   } catch {
     suggestion = null; // invalid product input -- leave tray fields alone
   }
@@ -516,7 +534,10 @@ function checkProductFit(params, fillSpec) {
       `Product height (${vertExtent}mm) exceeds cell height (${params.cellH}mm) by ${(vertExtent - params.cellH).toFixed(1)}mm.`
     );
   }
-  const neededLen = fillSpec.cookiesPerCell * packPitch + fillSpec.endClearance;
+  // Matches calculator.js's suggestFromProduct: cellLen is sized for
+  // whichever column-cell holds the most, not the full per-row total.
+  const maxPerColCell = Math.ceil(fillSpec.cookiesPerCell / (params.nCols || 1));
+  const neededLen = maxPerColCell * packPitch + fillSpec.endClearance;
   if (neededLen > params.cellLen) {
     warnings.push(
       `Packed product length (${neededLen.toFixed(1)}mm) exceeds cell length (${params.cellLen}mm) by ${(neededLen - params.cellLen).toFixed(1)}mm.`
@@ -580,8 +601,11 @@ function renderTitleblock(derived, params) {
     return;
   }
 
-  els.tbCells.textContent = `${params.nCells}-CELL`;
-  els.msTitle.textContent = `Cookie Tray · ${params.nCells}-cell`;
+  // "3-CELL" for a single-column tray (unchanged); "3x2-CELL" (6 total)
+  // once columns split each row into more than one cell.
+  const cellCountLabel = params.nCols > 1 ? `${params.nCells}x${params.nCols}` : `${params.nCells}`;
+  els.tbCells.textContent = `${cellCountLabel}-CELL`;
+  els.msTitle.textContent = `Cookie Tray · ${cellCountLabel}-cell`;
 
   const rows = [
     ["Footprint", `${derived.outerL.toFixed(1)} × ${derived.outerW.toFixed(1)} mm`, true],

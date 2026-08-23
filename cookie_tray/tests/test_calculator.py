@@ -193,3 +193,79 @@ def test_rectangle_round_trip_builds_valid_tray():
     params = derive_params(spec)
     part = build_tray(params)
     assert part.val().isValid()
+
+
+def test_n_cols_defaults_to_one_cell_len_unchanged():
+    spec = ProductSpec(
+        cookie_diameter=45.0,
+        cookie_thickness=12.0,
+        qty_total=24,
+        n_cells=3,
+    )
+    params = derive_params(spec)
+    assert spec.n_cols == 1
+    cookies_per_cell = math.ceil(spec.qty_total / spec.n_cells)
+    assert params.cell_len == pytest.approx(cookies_per_cell * 12.0 + spec.end_clearance)
+
+
+def test_n_cols_passed_through_to_tray_params():
+    spec = ProductSpec(
+        cookie_diameter=45.0,
+        cookie_thickness=12.0,
+        qty_total=24,
+        n_cells=3,
+        n_cols=3,
+    )
+    params = derive_params(spec)
+    assert params.n_cols == 3
+
+
+def test_n_cols_sizes_cell_len_from_max_per_column_divisible():
+    # 24 cookies/cell split across 3 columns divides evenly -> 8 each.
+    spec = ProductSpec(
+        cookie_diameter=45.0,
+        cookie_thickness=12.0,
+        qty_total=24,
+        cookies_per_cell=24,
+        n_cols=3,
+    )
+    params = derive_params(spec)
+    assert params.cell_len == pytest.approx(8 * 12.0 + spec.end_clearance)
+
+
+def test_n_cols_sizes_cell_len_from_max_per_column_uneven():
+    # 10 cookies/cell split across 3 columns doesn't divide evenly ->
+    # cell_len must fit the busiest column, ceil(10/3) = 4.
+    spec = ProductSpec(
+        cookie_diameter=45.0,
+        cookie_thickness=12.0,
+        qty_total=10,
+        cookies_per_cell=10,
+        n_cols=3,
+    )
+    params = derive_params(spec)
+    assert params.cell_len == pytest.approx(4 * 12.0 + spec.end_clearance)
+
+
+def test_n_cols_must_be_at_least_one():
+    with pytest.raises(ValueError, match="n_cols"):
+        ProductSpec(
+            cookie_diameter=45.0,
+            cookie_thickness=12.0,
+            qty_total=24,
+            n_cells=3,
+            n_cols=0,
+        )
+
+
+def test_n_cols_round_trip_builds_valid_tray():
+    spec = ProductSpec(
+        cookie_diameter=45.0,
+        cookie_thickness=12.0,
+        qty_total=24,
+        n_cells=2,
+        n_cols=3,
+    )
+    params = derive_params(spec)
+    part = build_tray(params)
+    assert part.val().isValid()

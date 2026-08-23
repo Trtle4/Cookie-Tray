@@ -214,6 +214,51 @@ def test_divider_below_min_divider_raises():
         TrayParams(divider=0.5)
 
 
+def test_n_cols_defaults_to_one_top_L_unchanged():
+    p = TrayParams(cell_len=170.0, wall=3.0)
+    assert p.n_cols == 1
+    assert p.top_L == pytest.approx(170.0 + 6.0)
+
+
+def test_n_cols_must_be_at_least_one():
+    with pytest.raises(ValueError, match="n_cols"):
+        TrayParams(n_cols=0)
+
+
+def test_col_divider_defaults_to_divider():
+    p = TrayParams(divider=2.5, col_divider=None)
+    assert p.col_divider == pytest.approx(2.5)
+
+
+def test_col_divider_defaults_to_wall_when_divider_also_unset():
+    p = TrayParams(wall=4.0, divider=None, col_divider=None)
+    assert p.col_divider == pytest.approx(4.0)
+
+
+def test_n_cols_grows_top_L_mirroring_n_cells_and_top_W():
+    p = TrayParams(n_cols=3, cell_len=50.0, wall=3.0, col_divider=3.0)
+    old_formula = p.n_cols * p.cell_len + (p.n_cols + 1) * p.wall
+    assert p.top_L == pytest.approx(old_formula)
+
+
+def test_col_divider_smaller_than_wall_shrinks_top_L():
+    p_thick = TrayParams(n_cols=3, cell_len=50.0, wall=3.0, col_divider=3.0)
+    p_thin = TrayParams(n_cols=3, cell_len=50.0, wall=3.0, col_divider=1.5)
+    assert p_thin.top_L < p_thick.top_L
+    # Only the two internal column dividers shrank (n_cols - 1 = 2), outer walls unchanged.
+    assert p_thick.top_L - p_thin.top_L == pytest.approx(2 * (3.0 - 1.5))
+
+
+def test_col_pitch_equals_cell_len_plus_col_divider():
+    p = TrayParams(cell_len=50.0, col_divider=4.0)
+    assert p.col_pitch == pytest.approx(54.0)
+
+
+def test_col_divider_below_min_divider_raises():
+    with pytest.raises(ValueError, match="col_divider"):
+        TrayParams(col_divider=0.5)
+
+
 def test_negative_draft_deg_warns_and_clamps_to_zero():
     with pytest.warns(UserWarning, match="draft_deg is negative"):
         p = TrayParams(draft_deg=-10.0)

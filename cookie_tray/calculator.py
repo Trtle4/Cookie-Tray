@@ -34,6 +34,7 @@ class ProductSpec:
 
     n_cells: Optional[int] = None
     cookies_per_cell: Optional[int] = None
+    n_cols: int = 1  # columns: splits each cell's packed row across n_cols sub-cells
     side_clearance: float = 1.5
     end_clearance: float = 3.0
     cradle_clearance: float = 0.0
@@ -43,6 +44,7 @@ class ProductSpec:
     long_axis: str = "X"
     wall: float = 3.0
     divider: Optional[float] = None  # defaults to wall, same as TrayParams
+    col_divider: Optional[float] = None  # defaults to divider, same as TrayParams
     floor: float = 2.5
     corner_r: float = 8.0
     draft_deg: float = 5.0
@@ -62,6 +64,8 @@ class ProductSpec:
             )
         if self.qty_total < 1:
             raise ValueError(f"qty_total must be >= 1, got {self.qty_total}")
+        if self.n_cols < 1:
+            raise ValueError(f"n_cols must be >= 1, got {self.n_cols}")
         if self.product_type == "round":
             if self.cookie_diameter is None or self.cookie_thickness is None:
                 raise ValueError("round product_type requires cookie_diameter and cookie_thickness")
@@ -121,7 +125,15 @@ def derive_params(spec: ProductSpec) -> TrayParams:
         n_cells = spec.n_cells
         cookies_per_cell = ceil(spec.qty_total / n_cells)
 
-    cell_len = cookies_per_cell * pack_pitch + spec.end_clearance
+    # cookies_per_cell is the total for one full row; n_cols (default 1, no
+    # change in behavior) splits that row's channel into n_cols end-to-end
+    # sub-cells (see TrayParams.n_cols/col_divider). cell_len is sized for
+    # whichever sub-cell holds the most -- ceil(.../n_cols), since an uneven
+    # split (see fill.js's balanced-columns helper) puts the remainder on
+    # the busiest column(s), and every sub-cell shares the same physical
+    # cell_len regardless of its own count.
+    max_per_col_cell = ceil(cookies_per_cell / spec.n_cols)
+    cell_len = max_per_col_cell * pack_pitch + spec.end_clearance
 
     return TrayParams(
         n_cells=n_cells,
@@ -130,8 +142,10 @@ def derive_params(spec: ProductSpec) -> TrayParams:
         cell_wid=cell_wid,
         cell_h=spec.cell_h,
         cradle_r=cradle_r,
+        n_cols=spec.n_cols,
         wall=spec.wall,
         divider=spec.divider,
+        col_divider=spec.col_divider,
         floor=spec.floor,
         corner_r=spec.corner_r,
         draft_deg=spec.draft_deg,

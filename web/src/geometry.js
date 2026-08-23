@@ -167,11 +167,16 @@ function troughNeg(cx, cy, floor, cellLen, cellWid, cellH, cradleR, fil) {
  */
 export function buildTray(p) {
   const R = Math.min(p.cradleR, p.cellWid / 2);
-  const topL = p.cellLen + 2 * p.wall;
+  // Outer walls (both ends) are `wall`; the nCols-1 internal dividers
+  // between column-cells are `colDivider`. Mirrors topW below on the
+  // orthogonal axis; nCols=1 (the default) collapses this back to the
+  // original cellLen + 2*wall.
+  const topL = p.nCols * p.cellLen + 2 * p.wall + (p.nCols - 1) * p.colDivider;
   // Outer walls (both sides) are `wall`; the nCells-1 internal dividers
   // between cells are `divider`.
   const topW = p.nCells * p.cellWid + 2 * p.wall + (p.nCells - 1) * p.divider;
   const pitch = p.cellWid + p.divider; // cell center-to-center spacing
+  const colPitch = p.cellLen + p.colDivider; // column-cell center-to-center spacing
   const H = p.floor + p.cellH;
   const draftRad = (p.draftDeg * Math.PI) / 180;
   // Base inset for a SINGLE continuous loft over the full height H, limited
@@ -229,9 +234,17 @@ export function buildTray(p) {
     cellFillet = Math.max(cellFillet, 5.0);
   }
 
+  // Columns (nCols, default 1) split each row's single cellLen-long channel
+  // into nCols shorter end-to-end sub-cells along X, spaced by colPitch
+  // (cellLen + colDivider) -- mirrors the row spacing above, on the
+  // orthogonal axis. nCols=1 collapses cx to 0 for every j, identical to
+  // the pre-columns single-cut-per-row behavior.
   for (let j = 0; j < p.nCells; j++) {
     const cy = -topW / 2 + p.wall + p.cellWid / 2 + j * pitch;
-    part = part.cut(troughNeg(0, cy, p.floor, p.cellLen, p.cellWid, p.cellH, R, cellFillet));
+    for (let k = 0; k < p.nCols; k++) {
+      const cx = -topL / 2 + p.wall + p.cellLen / 2 + k * colPitch;
+      part = part.cut(troughNeg(cx, cy, p.floor, p.cellLen, p.cellWid, p.cellH, R, cellFillet));
+    }
   }
 
   if (p.longAxis === "Y") {

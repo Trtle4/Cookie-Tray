@@ -18,6 +18,46 @@ import * as THREE from "three";
 
 const RESTING_EPS = 0.05; // mm -- a hair off the cradle surface, kills z-fighting
 
+/** Splits `total` items across `nCols` columns as evenly as possible, always
+ * keeping the two outermost columns matching. When `nCols` divides `total`
+ * evenly every column gets the same count. Otherwise the remainder (always
+ * < nCols) is assigned as whole mirrored PAIRS working from the outermost
+ * columns inward -- e.g. 8 across 3 columns is [3, 2, 3] (the outer pair
+ * absorbs the +1 each, middle stays at base), never [3, 3, 2]. Assigning a
+ * remainder to only one side of a pair (as a naive "closest to center
+ * first" ordering can do once the remainder can't fill a whole pair) is
+ * exactly what breaks the ends-match guarantee, so pairs are always
+ * completed atomically, never partially. The one true center index (odd
+ * nCols only) absorbs a single leftover unit first when the remainder
+ * itself is odd, since a lone center slot has no matching partner to break
+ * symmetry with. An even `nCols` with an odd remainder has no perfectly
+ * symmetric solution (no slot is unpaired) -- the last unit lands on the
+ * lowest-index open slot, a documented, unavoidable exception. */
+function splitAcrossColumns(total, nCols) {
+  const base = Math.floor(total / nCols);
+  let remainder = total - base * nCols;
+  const counts = new Array(nCols).fill(base);
+  if (remainder === 0) return counts;
+
+  if (nCols % 2 === 1 && remainder % 2 === 1) {
+    counts[(nCols - 1) / 2] += 1;
+    remainder -= 1;
+  }
+  let lo = 0;
+  let hi = nCols - 1;
+  while (remainder >= 2 && lo < hi) {
+    counts[lo] += 1;
+    counts[hi] += 1;
+    remainder -= 2;
+    lo += 1;
+    hi -= 1;
+  }
+  if (remainder > 0) {
+    counts[lo] += 1; // even nCols, odd remainder -- no symmetric slot left
+  }
+  return counts;
+}
+
 /** 2D rounded-rectangle profile (in the shape's local X/Y), independent
  * top-corner and bottom-corner radii, centered at the origin. */
 function roundedRectShape(width, height, rTop, rBot) {
@@ -80,9 +120,16 @@ export function buildFillGroup({
   edgeRTop = 0,
   edgeRBot = 0,
 }) {
-  const { nCells, cellWid, wall, divider, floor, longAxis } = params;
+  const { nCells, cellWid, cellLen, wall, divider, nCols = 1, colDivider, floor, longAxis } = params;
   const pitch = cellWid + divider; // matches TrayParams.pitch: cell center-to-center spacing
   const topW = nCells * cellWid + 2 * wall + (nCells - 1) * divider;
+  // Columns: mirrors pitch/topW above on the orthogonal axis. colDivider
+  // falls back to divider (then wall), same default chain as TrayParams --
+  // params here is the resolved (already-defaulted) TrayParams input, but
+  // guard anyway since fill.js can be called with a partial params object.
+  const resolvedColDivider = colDivider ?? divider ?? wall;
+  const colPitch = cellLen + resolvedColDivider; // matches TrayParams.colPitch
+  const topL = nCols * cellLen + 2 * wall + (nCols - 1) * resolvedColDivider;
 
   const group = new THREE.Group();
   // Solid/opaque (not translucent): overlapping products and the cradle
@@ -124,30 +171,35 @@ export function buildFillGroup({
     geometry = new THREE.CylinderGeometry(cookieDiameter / 2, cookieDiameter / 2, renderThickness, 48);
   }
 
-  // Center the packed row in the cell's full length, not anchored to one
-  // end -- endClearance only sets the MINIMUM required cell_len (see
-  // checkProductFit in main.js), so once the user manually grows cell_len
-  // past that minimum, the extra slack is free space that should split
-  // evenly on both ends rather than piling up on one side. At exactly the
-  // auto-suggested cell_len (cellLen = cookiesPerCell*packPitch +
-  // endClearance) this produces the identical positions as the old
-  // endClearance-anchored formula -- verified algebraically, not just a
-  // coincidence -- so the common/default case is unchanged.
-  const packedRowLen = cookiesPerCell * packPitch;
+  // Columns (nCols, default 1) split each row's cookiesPerCell products
+  // across nCols side-by-side column-cells instead of one long single-file
+  // line -- same split every row, computed once. nCols=1 gives a single
+  // column holding the full count, identical to the pre-columns behavior.
+  const colCounts = splitAcrossColumns(cookiesPerCell, nCols);
 
   // Build in the canonical (long axis = X) frame, then rotate the whole
   // group exactly like buildTray does for longAxis === "Y" — keeps the fill
   // guaranteed consistent with the actual solid instead of hand-swapping x/y.
   for (let j = 0; j < nCells; j++) {
     const cy = -topW / 2 + wall + cellWid / 2 + j * pitch;
-    for (let k = 0; k < cookiesPerCell; k++) {
-      const x = -packedRowLen / 2 + packPitch * (k + 0.5);
-      const mesh = new THREE.Mesh(geometry, material);
-      if (productType === "round") {
-        mesh.rotation.z = Math.PI / 2; // cylinder axis default is Y -> rotate onto X
+    for (let k = 0; k < nCols; k++) {
+      // Center of THIS column-cell along X (mirrors buildTray's own cx).
+      const colCx = -topL / 2 + wall + cellLen / 2 + k * colPitch;
+      const countInCol = colCounts[k];
+      // Center this column's own packed row within colCx, not anchored to
+      // one end -- same reasoning as the single-row case this generalizes
+      // (endClearance only sets the MINIMUM cell_len; extra slack in a
+      // manually-enlarged cell splits evenly on both ends).
+      const packedRowLen = countInCol * packPitch;
+      for (let m = 0; m < countInCol; m++) {
+        const x = colCx - packedRowLen / 2 + packPitch * (m + 0.5);
+        const mesh = new THREE.Mesh(geometry, material);
+        if (productType === "round") {
+          mesh.rotation.z = Math.PI / 2; // cylinder axis default is Y -> rotate onto X
+        }
+        mesh.position.set(x, cy, floor + centerZOffset);
+        group.add(mesh);
       }
-      mesh.position.set(x, cy, floor + centerZOffset);
-      group.add(mesh);
     }
   }
 

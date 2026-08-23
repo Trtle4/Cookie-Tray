@@ -152,6 +152,11 @@
                     </select>
                   </div>
                 </div>
+                <div class="field">
+                  <label for="f-nCols">Columns</label>
+                  <div class="in"><input id="f-nCols" type="number" name="nCols" value="1" min="1" step="1" /></div>
+                  <div class="hint">splits each cell into this many side by side, grid-style</div>
+                </div>
                 <div class="row2">
                   <div class="field" data-suggestable="cellLen">
                     <div class="field-label-row">
@@ -205,6 +210,11 @@
                     <div class="in"><input id="f-divider" type="number" name="divider" placeholder="wall" step="0.1" /><span class="unit">mm</span></div>
                     <div class="hint">blank = wall thickness</div>
                   </div>
+                </div>
+                <div class="field">
+                  <label for="f-colDivider">Column divider</label>
+                  <div class="in"><input id="f-colDivider" type="number" name="colDivider" placeholder="divider" step="0.1" /><span class="unit">mm</span></div>
+                  <div class="hint">blank = divider thickness</div>
                 </div>
                 <div class="field">
                   <label for="f-pitch">Cell pitch (center-to-center)</label>

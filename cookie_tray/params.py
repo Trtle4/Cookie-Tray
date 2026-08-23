@@ -29,6 +29,8 @@ class TrayParams:
     cradle_r: Optional[float] = None  # defaults to cell_wid/2
     wall: float = 3.0  # outer-wall thickness
     divider: Optional[float] = None  # internal cell-to-cell wall thickness; defaults to wall
+    n_cols: int = 1  # columns: splits each cell_len-long trough into n_cols end-to-end sub-cells
+    col_divider: Optional[float] = None  # internal cell-to-cell wall thickness along the column axis; defaults to divider
     floor: float = 2.5
     corner_r: float = 8.0
     draft_deg: float = 5.0
@@ -44,12 +46,16 @@ class TrayParams:
             self.cradle_r = self.cell_wid / 2.0
         if self.divider is None:
             self.divider = self.wall
+        if self.col_divider is None:
+            self.col_divider = self.divider
         self._validate()
 
     # ---- Validation guards — spec §3 ----
     def _validate(self) -> None:
         if self.n_cells < 1:
             raise ValueError(f"n_cells must be >= 1, got {self.n_cells}")
+        if self.n_cols < 1:
+            raise ValueError(f"n_cols must be >= 1, got {self.n_cols}")
         if self.long_axis not in ("X", "Y"):
             raise ValueError(f'long_axis must be "X" or "Y", got {self.long_axis!r}')
 
@@ -132,6 +138,8 @@ class TrayParams:
         # Guard 6: divider >= MIN_DIVIDER.
         if self.divider < MIN_DIVIDER:
             raise ValueError(f"divider ({self.divider}) must be >= {MIN_DIVIDER}mm")
+        if self.col_divider < MIN_DIVIDER:
+            raise ValueError(f"col_divider ({self.col_divider}) must be >= {MIN_DIVIDER}mm")
 
         # Guard 7: lip_h and flange_t are extruded thicknesses -- zero or
         # negative has no valid interpretation and previously reached OCC
@@ -158,7 +166,11 @@ class TrayParams:
 
     @property
     def top_L(self) -> float:
-        return self.cell_len + 2 * self.wall
+        # Outer walls (both ends) are `wall`; the n_cols-1 internal dividers
+        # between column-cells are `col_divider`. Mirrors top_W below on the
+        # orthogonal axis. n_cols=1 (the default) collapses this back to the
+        # original cell_len + 2*wall.
+        return self.n_cols * self.cell_len + 2 * self.wall + (self.n_cols - 1) * self.col_divider
 
     @property
     def top_W(self) -> float:
@@ -172,6 +184,13 @@ class TrayParams:
         (pitch = cell_wid + divider). Purely a display/UI convenience; the
         stored input is `divider`."""
         return self.cell_wid + self.divider
+
+    @property
+    def col_pitch(self) -> float:
+        """Column-cell center-to-center spacing along the length axis — an
+        alternate view of `col_divider` (col_pitch = cell_len + col_divider),
+        mirroring `pitch` above."""
+        return self.cell_len + self.col_divider
 
     @property
     def H(self) -> float:

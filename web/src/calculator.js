@@ -62,13 +62,16 @@ function resolveProductCellShape(spec) {
  * in `deriveParamsFromProduct`.
  */
 export function suggestFromProduct(spec) {
-  const { qtyTotal, nCells = null, cookiesPerCell = null, endClearance = 3.0 } = spec;
+  const { qtyTotal, nCells = null, cookiesPerCell = null, nCols = 1, endClearance = 3.0 } = spec;
 
   if ((nCells === null) === (cookiesPerCell === null)) {
     throw new Error("Supply exactly one of nCells or cookiesPerCell, not both/neither.");
   }
   if (!(qtyTotal >= 1)) {
     throw new Error(`qtyTotal must be >= 1, got ${qtyTotal}`);
+  }
+  if (!(nCols >= 1)) {
+    throw new Error(`nCols must be >= 1, got ${nCols}`);
   }
 
   const { cellWid, packPitch, vertExtent, cradleR } = resolveProductCellShape(spec);
@@ -82,7 +85,15 @@ export function suggestFromProduct(spec) {
     finalCookiesPerCell = Math.ceil(qtyTotal / nCells);
   }
 
-  const cellLen = finalCookiesPerCell * packPitch + endClearance;
+  // finalCookiesPerCell is the total for one full row; nCols (default 1, no
+  // change in behavior) splits that row's channel into nCols end-to-end
+  // sub-cells (see params.js's nCols/colDivider). cellLen is sized for
+  // whichever sub-cell holds the most -- ceil(.../nCols), since an uneven
+  // split (see fill.js's balanced-columns helper) puts the remainder on the
+  // busiest column(s), and every sub-cell shares the same physical cellLen
+  // regardless of its own count.
+  const maxPerColCell = Math.ceil(finalCookiesPerCell / nCols);
+  const cellLen = maxPerColCell * packPitch + endClearance;
   const cellH = vertExtent + 4.0; // small margin above the product's vertical extent
 
   return { nCells: finalNCells, cellLen, cellWid, cradleR, cellH, cookiesPerCell: finalCookiesPerCell };
@@ -101,6 +112,8 @@ export function deriveParamsFromProduct(spec) {
     longAxis = "X",
     wall = 3.0,
     divider = null,
+    nCols = 1,
+    colDivider = null,
     floor = 2.5,
     cornerR = 8.0,
     draftDeg = 5.0,
@@ -125,6 +138,8 @@ export function deriveParamsFromProduct(spec) {
     cradleR: suggestion.cradleR,
     wall,
     divider,
+    nCols,
+    colDivider,
     floor,
     cornerR,
     draftDeg,

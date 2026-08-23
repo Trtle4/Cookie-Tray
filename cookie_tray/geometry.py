@@ -198,6 +198,7 @@ def build_tray(params: TrayParams) -> cq.Workplane:
     p = params
 
     H = p.H
+    top_L = p.top_L
     top_W = p.top_W
     o_L, o_W, o_r = p.outer_L, p.outer_W, p.outer_r
 
@@ -258,11 +259,18 @@ def build_tray(params: TrayParams) -> cq.Workplane:
     if p.wall < 2.0 and p.corner_r > 6.0:
         cell_fillet = max(cell_fillet, 5.0)
 
+    # Columns (n_cols, default 1) split each row's single cell_len-long
+    # channel into n_cols shorter end-to-end sub-cells along X, spaced by
+    # col_pitch (cell_len + col_divider) -- mirrors the row spacing above,
+    # on the orthogonal axis. n_cols=1 collapses cx to 0.0 for every j,
+    # identical to the pre-columns single-cut-per-row behavior.
     for j in range(p.n_cells):
         cy = -top_W / 2 + p.wall + p.cell_wid / 2 + j * p.pitch
-        part = part.cut(
-            trough_neg(0.0, cy, p.floor, p.cell_len, p.cell_wid, p.cell_h, p.cradle_r, cell_fillet)
-        )
+        for k in range(p.n_cols):
+            cx = -top_L / 2 + p.wall + p.cell_len / 2 + k * p.col_pitch
+            part = part.cut(
+                trough_neg(cx, cy, p.floor, p.cell_len, p.cell_wid, p.cell_h, p.cradle_r, cell_fillet)
+            )
 
     if p.long_axis == "Y":
         part = part.rotate((0, 0, 0), (0, 0, 1), 90)

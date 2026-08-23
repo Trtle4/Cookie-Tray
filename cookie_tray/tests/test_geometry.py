@@ -266,3 +266,51 @@ def test_build_thin_divider_thick_wall(tmp_path):
     expected = sorted([p.outer_L, p.outer_W])
     assert extents[0] == pytest.approx(expected[0], rel=1e-2)
     assert extents[1] == pytest.approx(expected[1], rel=1e-2)
+
+
+def test_build_columns_grid_watertight_and_bbox(tmp_path):
+    p = TrayParams(n_cells=2, n_cols=3, cell_len=50.0, cell_wid=48.0)
+    mesh = _mesh_for(p, "columns_grid", tmp_path)
+    _assert_watertight_genus0(mesh)
+    extents = sorted(mesh.bounding_box.extents[:2])
+    expected = sorted([p.outer_L, p.outer_W])
+    assert extents[0] == pytest.approx(expected[0], rel=1e-2)
+    assert extents[1] == pytest.approx(expected[1], rel=1e-2)
+
+
+def test_build_columns_single_row(tmp_path):
+    # A single row (n_cells=1) split into columns -- exercises the column
+    # axis in isolation from the row axis.
+    p = TrayParams(n_cells=1, n_cols=4, cell_len=40.0)
+    mesh = _mesh_for(p, "columns_single_row", tmp_path)
+    _assert_watertight_genus0(mesh)
+
+
+def test_build_columns_long_axis_y(tmp_path):
+    p = TrayParams(n_cells=2, n_cols=3, cell_len=50.0, long_axis="Y")
+    mesh = _mesh_for(p, "columns_axis_y", tmp_path)
+    _assert_watertight_genus0(mesh)
+    extents = sorted(mesh.bounding_box.extents[:2])
+    expected = sorted([p.outer_L, p.outer_W])
+    assert extents[0] == pytest.approx(expected[0], rel=1e-2)
+    assert extents[1] == pytest.approx(expected[1], rel=1e-2)
+
+
+def test_build_columns_default_matches_pre_columns_tray(tmp_path):
+    # n_cols=1 (default) must produce the byte-for-byte-equivalent tray as
+    # before columns existed -- same volume as a plain n_cells build.
+    p_plain = TrayParams(n_cells=3, cell_len=170.0)
+    p_explicit = TrayParams(n_cells=3, cell_len=170.0, n_cols=1)
+    v_plain = build_tray(p_plain).val().Volume()
+    v_explicit = build_tray(p_explicit).val().Volume()
+    assert v_explicit == pytest.approx(v_plain, rel=1e-9)
+
+
+def test_build_columns_thin_col_divider(tmp_path):
+    p = TrayParams(n_cells=2, n_cols=3, cell_len=50.0, wall=3.0, col_divider=1.5)
+    mesh = _mesh_for(p, "columns_thin_col_divider", tmp_path)
+    _assert_watertight_genus0(mesh)
+    extents = sorted(mesh.bounding_box.extents[:2])
+    expected = sorted([p.outer_L, p.outer_W])
+    assert extents[0] == pytest.approx(expected[0], rel=1e-2)
+    assert extents[1] == pytest.approx(expected[1], rel=1e-2)
