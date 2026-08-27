@@ -269,3 +269,141 @@ def test_n_cols_round_trip_builds_valid_tray():
     params = derive_params(spec)
     part = build_tray(params)
     assert part.val().isValid()
+
+
+def test_pack_mode_defaults_to_standing():
+    spec = ProductSpec(cookie_diameter=45.0, cookie_thickness=12.0, qty_total=24, n_cells=3)
+    assert spec.pack_mode == "standing"
+
+
+def test_invalid_pack_mode_rejected():
+    with pytest.raises(ValueError, match="pack_mode"):
+        ProductSpec(
+            cookie_diameter=45.0,
+            cookie_thickness=12.0,
+            qty_total=24,
+            n_cells=3,
+            pack_mode="sideways",
+        )
+
+
+def test_stack_mode_cell_len_uses_footprint_not_count():
+    # Standing mode would scale cell_len with cookies_per_cell/n_cols; stack
+    # mode must not -- the footprint (diameter) doesn't grow with the stack.
+    spec = ProductSpec(
+        cookie_diameter=45.0,
+        cookie_thickness=12.0,
+        qty_total=24,
+        n_cells=3,
+        n_cols=2,
+        pack_mode="stack",
+        cell_h=100.0,  # generous, unrelated to this assertion
+    )
+    params = derive_params(spec)
+    assert params.cell_len == pytest.approx(45.0 + spec.end_clearance)
+
+
+def test_stack_mode_matches_user_example_grid_and_per_pocket_count():
+    # 2x3 grid (n_cells=3, n_cols=2), 24 total -> 4 per pocket.
+    spec = ProductSpec(
+        cookie_diameter=45.0,
+        cookie_thickness=12.0,
+        qty_total=24,
+        n_cells=3,
+        n_cols=2,
+        pack_mode="stack",
+        cell_h=100.0,
+    )
+    cookies_per_cell = math.ceil(spec.qty_total / spec.n_cells)
+    max_per_col_cell = math.ceil(cookies_per_cell / spec.n_cols)
+    assert max_per_col_cell == 4
+
+
+def test_rectangle_stack_mode_cell_len_uses_product_height():
+    spec = ProductSpec(
+        product_type="rectangle",
+        qty_total=10,
+        n_cells=2,
+        product_width=40.0,
+        product_height=20.0,
+        product_thickness=10.0,
+        pack_mode="stack",
+        cell_h=100.0,
+    )
+    params = derive_params(spec)
+    assert params.cell_len == pytest.approx(20.0 + spec.end_clearance)
+
+
+def test_stack_mode_cradle_r_defaults_small_for_round():
+    spec = ProductSpec(
+        cookie_diameter=45.0,
+        cookie_thickness=12.0,
+        qty_total=24,
+        n_cells=3,
+        pack_mode="stack",
+        cell_h=100.0,
+    )
+    params = derive_params(spec)
+    assert params.cradle_r == pytest.approx(2.5)
+
+
+def test_stack_mode_cradle_r_defaults_small_for_rectangle_too():
+    # Standing-mode rectangles already default to a small fixed 5mm cradle;
+    # stack mode uses an even shallower one, and applies it to BOTH shapes.
+    spec = ProductSpec(
+        product_type="rectangle",
+        qty_total=10,
+        n_cells=2,
+        product_width=40.0,
+        product_height=20.0,
+        product_thickness=10.0,
+        pack_mode="stack",
+        cell_h=100.0,
+    )
+    params = derive_params(spec)
+    assert params.cradle_r == pytest.approx(2.5)
+
+
+def test_stack_mode_cradle_r_clamped_to_cell_wid_half_when_narrow():
+    spec = ProductSpec(
+        cookie_diameter=4.0,  # cell_wid = 4 + 2*1.5 = 7 -> half = 3.5 < 2.5, so NOT clamped here
+        cookie_thickness=12.0,
+        qty_total=24,
+        n_cells=3,
+        pack_mode="stack",
+        side_clearance=0.0,  # cell_wid = 4 -> half = 2.0 < 2.5mm suggestion -> clamped
+        cell_h=100.0,
+    )
+    params = derive_params(spec)
+    assert params.cradle_r == pytest.approx(2.0)
+
+
+def test_stack_mode_round_trip_builds_valid_tray():
+    spec = ProductSpec(
+        cookie_diameter=45.0,
+        cookie_thickness=12.0,
+        qty_total=24,
+        n_cells=3,
+        n_cols=2,
+        pack_mode="stack",
+        cell_h=60.0,  # 4 per pocket * 12mm + margin, generously sized
+    )
+    params = derive_params(spec)
+    part = build_tray(params)
+    assert part.val().isValid()
+
+
+def test_rectangle_stack_mode_round_trip_builds_valid_tray():
+    spec = ProductSpec(
+        product_type="rectangle",
+        qty_total=12,
+        n_cells=3,
+        product_width=40.0,
+        product_height=20.0,
+        product_thickness=10.0,
+        pack_mode="stack",
+        cell_h=50.0,
+    )
+    params = derive_params(spec)
+    part = build_tray(params)
+    assert part.val().isValid()

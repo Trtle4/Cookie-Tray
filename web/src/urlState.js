@@ -17,6 +17,7 @@ import { DEFAULTS as TRAY_DEFAULTS } from "./params.js";
 // for the product form the way params.js has one for the tray).
 export const PRODUCT_DEFAULTS = Object.freeze({
   productType: "round",
+  packMode: "standing",
   cookieDiameter: 45,
   cookieThickness: 12,
   productWidth: 45,
@@ -55,6 +56,7 @@ const TRAY_KEY_MAP = {
 
 const PRODUCT_KEY_MAP = {
   productType: "pty",
+  packMode: "pkm",
   cookieDiameter: "pdia",
   cookieThickness: "pthk",
   productWidth: "pw",
@@ -68,7 +70,7 @@ const PRODUCT_KEY_MAP = {
   cookiesPerCell: "cpc",
 };
 
-const STRING_FIELDS = new Set(["longAxis", "productType", "distributeBy"]);
+const STRING_FIELDS = new Set(["longAxis", "productType", "distributeBy", "packMode"]);
 
 /** Trims to at most 4 decimals without forcing trailing zeros (12.7000 -> "12.7"). */
 function fmtNum(n) {

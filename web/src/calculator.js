@@ -18,6 +18,7 @@ import { makeTrayParams } from "./params.js";
 function resolveProductCellShape(spec) {
   const {
     productType = "round",
+    packMode = "standing",
     cookieDiameter,
     cookieThickness,
     productWidth,
@@ -45,9 +46,20 @@ function resolveProductCellShape(spec) {
   }
 
   const maxCradleR = cellWid / 2;
-  // Rectangular products have no natural "radius" to hug; suggest a modest
-  // fixed rounded-bottom radius instead of cellWid/2.
-  let cradleR = productType === "rectangle" ? 5.0 - cradleClearance : cellWid / 2 - cradleClearance;
+  let cradleR;
+  if (packMode === "stack") {
+    // A product lying flat rests on its own broad face, not a curved side --
+    // same reasoning as the rectangle rule below (a modest fixed radius, not
+    // a deep hugging curve), just applied whenever the product lies flat,
+    // round or rectangle alike.
+    cradleR = 2.5 - cradleClearance;
+  } else if (productType === "rectangle") {
+    // Rectangular products have no natural "radius" to hug; suggest a modest
+    // fixed rounded-bottom radius instead of cellWid/2.
+    cradleR = 5.0 - cradleClearance;
+  } else {
+    cradleR = cellWid / 2 - cradleClearance;
+  }
   cradleR = Math.min(Math.max(cradleR, 0.5), maxCradleR);
 
   return { cellWid, packPitch, vertExtent, cradleR };
@@ -62,7 +74,7 @@ function resolveProductCellShape(spec) {
  * in `deriveParamsFromProduct`.
  */
 export function suggestFromProduct(spec) {
-  const { qtyTotal, nCells = null, cookiesPerCell = null, nCols = 1, endClearance = 3.0 } = spec;
+  const { qtyTotal, nCells = null, cookiesPerCell = null, nCols = 1, endClearance = 3.0, packMode = "standing" } = spec;
 
   if ((nCells === null) === (cookiesPerCell === null)) {
     throw new Error("Supply exactly one of nCells or cookiesPerCell, not both/neither.");
@@ -87,14 +99,28 @@ export function suggestFromProduct(spec) {
 
   // finalCookiesPerCell is the total for one full row; nCols (default 1, no
   // change in behavior) splits that row's channel into nCols end-to-end
-  // sub-cells (see params.js's nCols/colDivider). cellLen is sized for
-  // whichever sub-cell holds the most -- ceil(.../nCols), since an uneven
-  // split (see fill.js's balanced-columns helper) puts the remainder on the
-  // busiest column(s), and every sub-cell shares the same physical cellLen
-  // regardless of its own count.
+  // sub-cells (see params.js's nCols/colDivider). Every sub-cell (pocket)
+  // gets the same count -- ceil(.../nCols), since an uneven split (see
+  // fill.js's balanced-columns helper) puts the remainder on the busiest
+  // column(s), and every pocket shares the same physical size regardless of
+  // its own count. This is identical for both pack modes below -- only
+  // which physical dimension that count drives differs.
   const maxPerColCell = Math.ceil(finalCookiesPerCell / nCols);
-  const cellLen = maxPerColCell * packPitch + endClearance;
-  const cellH = vertExtent + 4.0; // small margin above the product's vertical extent
+
+  let cellLen, cellH;
+  if (packMode === "stack") {
+    // Flat/stacked: each pocket holds a vertical stack of maxPerColCell
+    // products lying flat, so the footprint (cellLen) doesn't grow with the
+    // count -- it's just the product's other footprint dimension (round:
+    // diameter; rectangle: height) plus clearance. The count instead drives
+    // the STACK HEIGHT (cellH), the mirror image of the standing/channel
+    // formulas below.
+    cellLen = vertExtent + endClearance;
+    cellH = maxPerColCell * packPitch + 4.0;
+  } else {
+    cellLen = maxPerColCell * packPitch + endClearance;
+    cellH = vertExtent + 4.0; // small margin above the product's vertical extent
+  }
 
   return { nCells: finalNCells, cellLen, cellWid, cradleR, cellH, cookiesPerCell: finalCookiesPerCell };
 }

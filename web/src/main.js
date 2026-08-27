@@ -26,6 +26,10 @@ const els = {
   distributeBy: document.querySelector('select[name="distributeBy"]'),
   nCellsField: document.getElementById("product-ncells-field"),
   perCellField: document.getElementById("product-percell-field"),
+  perCellLabel: document.querySelector('label[for="f-cookiesPerCell"]'),
+  perCellSegBtn: document.querySelector('#distribute-by-seg .seg-btn[data-seg-value="cookiesPerCell"]'),
+  packMode: document.querySelector('select[name="packMode"]'),
+  packModeSeg: document.getElementById("pack-mode-seg"),
   productType: document.querySelector('select[name="productType"]'),
   roundFields: document.getElementById("product-round-fields"),
   rectFields: document.getElementById("product-rect-fields"),
@@ -105,6 +109,7 @@ function wireSegment(container, selectEl) {
 wireSegment(els.productTypeSeg, els.productType);
 wireSegment(els.distributeBySeg, els.distributeBy);
 wireSegment(els.longAxisSeg, els.trayForm.elements.longAxis);
+wireSegment(els.packModeSeg, els.packMode);
 
 // Tray fields the product section can suggest a value for. If the user has
 // edited one of these directly, their value wins — the product section
@@ -187,6 +192,7 @@ function applyURLParamsToForm() {
   // suggestions + schedule the first build.
   els.productType.dispatchEvent(new Event("change", { bubbles: true }));
   els.distributeBy.dispatchEvent(new Event("change", { bubbles: true }));
+  els.packMode?.dispatchEvent(new Event("change", { bubbles: true }));
   els.trayForm.elements.longAxis.dispatchEvent(new Event("change", { bubbles: true }));
   syncSuggestableFieldAffordances();
 }
@@ -262,6 +268,24 @@ els.productType.addEventListener("change", () => {
   els.rectFields.style.display = isRect ? "" : "none";
   applyProductSuggestions();
 });
+
+/** "Cookies per cell" is the same distribution field in both pack modes
+ * (see calculator.js: it's still the per-pocket count, before/after the
+ * nCols split, regardless of orientation) -- only its on-screen wording
+ * changes so "stack" mode reads naturally ("per stack" rather than
+ * "per cell"). */
+function updatePackModeLabels() {
+  const stack = els.packMode?.value === "stack";
+  if (els.perCellLabel) els.perCellLabel.textContent = stack ? "Products per stack" : "Cookies per cell";
+  if (els.perCellSegBtn) els.perCellSegBtn.textContent = stack ? "Per-stack" : "Per-cell";
+}
+
+// ---- Product section: standing <-> flat/stacked orientation toggle ----
+els.packMode?.addEventListener("change", () => {
+  updatePackModeLabels();
+  applyProductSuggestions();
+});
+updatePackModeLabels();
 
 els.productForm.addEventListener("input", applyProductSuggestions);
 
@@ -380,6 +404,7 @@ function readProductInput() {
   const byPerCell = els.distributeBy.value === "cookiesPerCell";
   return {
     productType: raw.productType,
+    packMode: raw.packMode,
     cookieDiameter: raw.cookieDiameter,
     cookieThickness: raw.cookieThickness,
     productWidth: raw.productWidth,
@@ -460,6 +485,7 @@ function applyProductSuggestions() {
     }
     lastFillSpec = {
       productType: productInput.productType,
+      packMode: productInput.packMode,
       cookiesPerCell: suggestion.cookiesPerCell,
       cookieDiameter: productInput.cookieDiameter,
       cookieThickness: productInput.cookieThickness,
@@ -519,10 +545,16 @@ function markInvalidFields(errors) {
 function checkProductFit(params, fillSpec) {
   if (!fillSpec) return [];
   const isRect = fillSpec.productType === "rectangle";
+  const isStack = fillSpec.packMode === "stack";
   const crossWidth = isRect ? fillSpec.productWidth : fillSpec.cookieDiameter;
   const vertExtent = isRect ? fillSpec.productHeight : fillSpec.cookieDiameter;
   const packPitch = isRect ? fillSpec.productThickness : fillSpec.cookieThickness;
   if (!(crossWidth > 0) || !(vertExtent > 0) || !(packPitch > 0)) return [];
+
+  // Matches calculator.js's suggestFromProduct: every pocket (after the
+  // nCols split) gets the same count, whichever pack mode is active --
+  // only which physical dimension that count drives differs below.
+  const maxPerColCell = Math.ceil(fillSpec.cookiesPerCell / (params.nCols || 1));
 
   const warnings = [];
   if (crossWidth > params.cellWid) {
@@ -530,19 +562,34 @@ function checkProductFit(params, fillSpec) {
       `Product width (${crossWidth}mm) exceeds cell width (${params.cellWid}mm) by ${(crossWidth - params.cellWid).toFixed(1)}mm.`
     );
   }
-  if (vertExtent > params.cellH) {
-    warnings.push(
-      `Product height (${vertExtent}mm) exceeds cell height (${params.cellH}mm) by ${(vertExtent - params.cellH).toFixed(1)}mm.`
-    );
-  }
-  // Matches calculator.js's suggestFromProduct: cellLen is sized for
-  // whichever column-cell holds the most, not the full per-row total.
-  const maxPerColCell = Math.ceil(fillSpec.cookiesPerCell / (params.nCols || 1));
-  const neededLen = maxPerColCell * packPitch + fillSpec.endClearance;
-  if (neededLen > params.cellLen) {
-    warnings.push(
-      `Packed product length (${neededLen.toFixed(1)}mm) exceeds cell length (${params.cellLen}mm) by ${(neededLen - params.cellLen).toFixed(1)}mm.`
-    );
+
+  if (isStack) {
+    // Flat/stacked: cellLen is footprint-based (not count-scaled), cellH
+    // carries the stack height instead.
+    const neededLen = vertExtent + fillSpec.endClearance;
+    if (neededLen > params.cellLen) {
+      warnings.push(
+        `Product footprint (${neededLen.toFixed(1)}mm) exceeds cell length (${params.cellLen}mm) by ${(neededLen - params.cellLen).toFixed(1)}mm.`
+      );
+    }
+    const neededHeight = maxPerColCell * packPitch + 4.0;
+    if (neededHeight > params.cellH) {
+      warnings.push(
+        `Stacked product height (${neededHeight.toFixed(1)}mm) exceeds cell height (${params.cellH}mm) by ${(neededHeight - params.cellH).toFixed(1)}mm.`
+      );
+    }
+  } else {
+    if (vertExtent > params.cellH) {
+      warnings.push(
+        `Product height (${vertExtent}mm) exceeds cell height (${params.cellH}mm) by ${(vertExtent - params.cellH).toFixed(1)}mm.`
+      );
+    }
+    const neededLen = maxPerColCell * packPitch + fillSpec.endClearance;
+    if (neededLen > params.cellLen) {
+      warnings.push(
+        `Packed product length (${neededLen.toFixed(1)}mm) exceeds cell length (${params.cellLen}mm) by ${(neededLen - params.cellLen).toFixed(1)}mm.`
+      );
+    }
   }
   return warnings;
 }

@@ -20,6 +20,7 @@ from .params import TrayParams
 class ProductSpec:
     qty_total: int
     product_type: str = "round"  # "round" | "rectangle"
+    pack_mode: str = "standing"  # "standing" (packed row, on edge) | "stack" (flat, stacked vertically)
 
     # ROUND fields (pitch along channel = cookie_thickness; vertical extent = diameter)
     cookie_diameter: Optional[float] = None
@@ -58,6 +59,8 @@ class ProductSpec:
     def __post_init__(self) -> None:
         if self.product_type not in ("round", "rectangle"):
             raise ValueError(f'product_type must be "round" or "rectangle", got {self.product_type!r}')
+        if self.pack_mode not in ("standing", "stack"):
+            raise ValueError(f'pack_mode must be "standing" or "stack", got {self.pack_mode!r}')
         if (self.n_cells is None) == (self.cookies_per_cell is None):
             raise ValueError(
                 "Supply exactly one of n_cells or cookies_per_cell, not both/neither."
@@ -82,21 +85,29 @@ class ProductSpec:
             raise ValueError(f"cell_h must be > 0, got {self.cell_h}")
 
 
-def _resolve_product_cell_shape(spec: ProductSpec) -> tuple[float, float, float]:
-    """The single round/rect branch point: (cell_wid, pack_pitch, cradle_r)
-    for the given spec. The round/rectangle rules (cell_wid formula,
-    "rectangles suggest a 5mm cradle" rule) live here and nowhere else, so
-    they can't drift if a second call site is ever added.
+def _resolve_product_cell_shape(spec: ProductSpec) -> tuple[float, float, float, float]:
+    """The single round/rect branch point: (cell_wid, pack_pitch, vert_extent,
+    cradle_r) for the given spec. The round/rectangle rules (cell_wid
+    formula, "rectangles suggest a 5mm cradle" rule) live here and nowhere
+    else, so they can't drift if a second call site is ever added.
     """
     if spec.product_type == "rectangle":
         cell_wid = spec.product_width + 2 * spec.side_clearance
         pack_pitch = spec.product_thickness
+        vert_extent = spec.product_height
     else:
         cell_wid = spec.cookie_diameter + 2 * spec.side_clearance
         pack_pitch = spec.cookie_thickness
+        vert_extent = spec.cookie_diameter
 
     max_cradle_r = cell_wid / 2.0
-    if spec.product_type == "rectangle":
+    if spec.pack_mode == "stack":
+        # A product lying flat rests on its own broad face, not a curved
+        # side -- same reasoning as the rectangle rule below (a modest fixed
+        # radius, not a deep hugging curve), just applied whenever the
+        # product lies flat, round or rectangle alike.
+        cradle_r = 2.5 - spec.cradle_clearance
+    elif spec.product_type == "rectangle":
         # Rectangular products have no natural "radius" to hug; suggest a
         # modest fixed rounded-bottom radius instead of cell_wid/2.
         cradle_r = 5.0 - spec.cradle_clearance
@@ -104,7 +115,7 @@ def _resolve_product_cell_shape(spec: ProductSpec) -> tuple[float, float, float]
         cradle_r = cell_wid / 2.0 - spec.cradle_clearance
     cradle_r = min(max(cradle_r, 1e-6), max_cradle_r)  # clamp to (0, cell_wid/2]
 
-    return cell_wid, pack_pitch, cradle_r
+    return cell_wid, pack_pitch, vert_extent, cradle_r
 
 
 def derive_params(spec: ProductSpec) -> TrayParams:
@@ -116,7 +127,7 @@ def derive_params(spec: ProductSpec) -> TrayParams:
     implies — surfaces as a ``ValueError`` right here rather than silently
     growing the tray past what was asked for.
     """
-    cell_wid, pack_pitch, cradle_r = _resolve_product_cell_shape(spec)
+    cell_wid, pack_pitch, vert_extent, cradle_r = _resolve_product_cell_shape(spec)
 
     if spec.cookies_per_cell is not None:
         cookies_per_cell = spec.cookies_per_cell
@@ -127,13 +138,26 @@ def derive_params(spec: ProductSpec) -> TrayParams:
 
     # cookies_per_cell is the total for one full row; n_cols (default 1, no
     # change in behavior) splits that row's channel into n_cols end-to-end
-    # sub-cells (see TrayParams.n_cols/col_divider). cell_len is sized for
-    # whichever sub-cell holds the most -- ceil(.../n_cols), since an uneven
-    # split (see fill.js's balanced-columns helper) puts the remainder on
-    # the busiest column(s), and every sub-cell shares the same physical
-    # cell_len regardless of its own count.
+    # sub-cells (see TrayParams.n_cols/col_divider). Every sub-cell (pocket)
+    # gets the same count -- ceil(.../n_cols), since an uneven split (see
+    # fill.js's balanced-columns helper) puts the remainder on the busiest
+    # column(s), and every pocket shares the same physical size regardless
+    # of its own count. This holds for both pack modes; only which physical
+    # dimension that count drives differs below.
     max_per_col_cell = ceil(cookies_per_cell / spec.n_cols)
-    cell_len = max_per_col_cell * pack_pitch + spec.end_clearance
+    if spec.pack_mode == "stack":
+        # Flat/stacked: each pocket holds a vertical stack of
+        # max_per_col_cell products lying flat, so the footprint (cell_len)
+        # doesn't grow with the count -- it's just the product's other
+        # footprint dimension (round: diameter; rectangle: height) plus
+        # clearance. cell_h is NOT auto-derived here (matches this
+        # function's existing contract: cell_h always comes from
+        # spec.cell_h) -- the caller is responsible for sizing it to fit
+        # max_per_col_cell * pack_pitch plus margin, same as it's always
+        # been responsible for sizing cell_h in standing mode.
+        cell_len = vert_extent + spec.end_clearance
+    else:
+        cell_len = max_per_col_cell * pack_pitch + spec.end_clearance
 
     return TrayParams(
         n_cells=n_cells,

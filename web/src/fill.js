@@ -107,6 +107,7 @@ export function rectProductGeometry(width, height, thickness, edgeRTop, edgeRBot
  * @param {number} [args.productThickness]
  * @param {number} [args.edgeRTop]
  * @param {number} [args.edgeRBot]
+ * @param {"standing"|"stack"} [args.packMode]
  */
 export function buildFillGroup({
   params,
@@ -119,6 +120,7 @@ export function buildFillGroup({
   productThickness,
   edgeRTop = 0,
   edgeRBot = 0,
+  packMode = "standing",
 }) {
   const { nCells, cellWid, cellLen, wall, divider, nCols = 1, colDivider, floor, longAxis } = params;
   const pitch = cellWid + divider; // matches TrayParams.pitch: cell center-to-center spacing
@@ -186,19 +188,40 @@ export function buildFillGroup({
       // Center of THIS column-cell along X (mirrors buildTray's own cx).
       const colCx = -topL / 2 + wall + cellLen / 2 + k * colPitch;
       const countInCol = colCounts[k];
-      // Center this column's own packed row within colCx, not anchored to
-      // one end -- same reasoning as the single-row case this generalizes
-      // (endClearance only sets the MINIMUM cell_len; extra slack in a
-      // manually-enlarged cell splits evenly on both ends).
-      const packedRowLen = countInCol * packPitch;
-      for (let m = 0; m < countInCol; m++) {
-        const x = colCx - packedRowLen / 2 + packPitch * (m + 0.5);
-        const mesh = new THREE.Mesh(geometry, material);
-        if (productType === "round") {
-          mesh.rotation.z = Math.PI / 2; // cylinder axis default is Y -> rotate onto X
+
+      if (packMode === "stack") {
+        // Flat/stacked: the whole count for this pocket stacks vertically
+        // at the pocket's own center -- no horizontal spread, unlike the
+        // standing/channel row below. Each product is tipped onto its flat
+        // face (packPitch/thickness axis -> vertical) instead of standing
+        // on edge.
+        for (let m = 0; m < countInCol; m++) {
+          const mesh = new THREE.Mesh(geometry, material);
+          if (productType === "round") {
+            mesh.rotation.x = Math.PI / 2; // cylinder axis default is Y -> rotate onto Z (vertical)
+          } else {
+            mesh.rotation.y = Math.PI / 2; // swap thickness (local X) and height (local Z): thickness -> vertical
+          }
+          const z = floor + RESTING_EPS + packPitch * (m + 0.5);
+          mesh.position.set(colCx, cy, z);
+          group.add(mesh);
         }
-        mesh.position.set(x, cy, floor + centerZOffset);
-        group.add(mesh);
+      } else {
+        // Standing/channel: center this column's own packed row within
+        // colCx, not anchored to one end -- same reasoning as the
+        // single-row case this generalizes (endClearance only sets the
+        // MINIMUM cell_len; extra slack in a manually-enlarged cell splits
+        // evenly on both ends).
+        const packedRowLen = countInCol * packPitch;
+        for (let m = 0; m < countInCol; m++) {
+          const x = colCx - packedRowLen / 2 + packPitch * (m + 0.5);
+          const mesh = new THREE.Mesh(geometry, material);
+          if (productType === "round") {
+            mesh.rotation.z = Math.PI / 2; // cylinder axis default is Y -> rotate onto X
+          }
+          mesh.position.set(x, cy, floor + centerZOffset);
+          group.add(mesh);
+        }
       }
     }
   }
