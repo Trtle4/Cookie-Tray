@@ -3,7 +3,7 @@ name: Deploy web app to GitHub Pages
 on:
   push:
     branches:
-      - claude/cookie-tray-sizer-module-jdjr7y
+      - main
   workflow_dispatch:
 
 permissions:
