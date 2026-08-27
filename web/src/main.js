@@ -146,6 +146,25 @@ function resetFieldToAuto(field) {
   syncSuggestableFieldAffordances();
 }
 
+/** Like resetAllToAuto() but scoped to just the product-SHAPE-derived
+ * fields (not nCells, a distribution/count choice independent of shape) --
+ * called when Shape or Orientation actually changes via a real click, since
+ * that changes the very FORMULA these fields are suggested from (e.g.
+ * standing vs stack size cellLen/cellH from entirely different product
+ * dimensions). Without this, a field frozen manual from an earlier edit --
+ * or a shared/QR link, see applyURLParamsToForm -- silently keeps showing
+ * the OLD orientation's stale value after switching, with no obvious sign
+ * why (reported as "the rectangle only got sized in one dimension").
+ * Deliberately wired to the seg buttons' own "input" dispatch (see
+ * wireSegment), never the "change" event applyURLParamsToForm() also
+ * dispatches on load -- a shared link's own field values must NOT be wiped
+ * out by this. */
+function resetShapeFieldsToAuto() {
+  for (const field of ["cellLen", "cellWid", "cellH", "cradleR"]) userTouched.delete(field);
+  applyProductSuggestions();
+  syncSuggestableFieldAffordances();
+}
+
 function resetAllToAuto() {
   userTouched.clear();
   applyProductSuggestions();
@@ -262,6 +281,7 @@ els.distributeBy.addEventListener("change", () => {
 });
 
 // ---- Product section: round <-> rectangle field group toggle ----
+els.productType.addEventListener("input", resetShapeFieldsToAuto);
 els.productType.addEventListener("change", () => {
   const isRect = els.productType.value === "rectangle";
   els.roundFields.style.display = isRect ? "none" : "";
@@ -281,6 +301,7 @@ function updatePackModeLabels() {
 }
 
 // ---- Product section: standing <-> flat/stacked orientation toggle ----
+els.packMode?.addEventListener("input", resetShapeFieldsToAuto);
 els.packMode?.addEventListener("change", () => {
   updatePackModeLabels();
   applyProductSuggestions();
@@ -1439,16 +1460,45 @@ els.arPanel?.addEventListener("touchend", () => {
 
 els.arCopyLinkBtn?.addEventListener("click", async () => {
   const original = els.arCopyLinkBtn.textContent;
-  try {
-    await navigator.clipboard.writeText(els.arShareLink.value);
-    els.arCopyLinkBtn.textContent = "Copied!";
-  } catch {
-    els.arShareLink.select();
-    els.arCopyLinkBtn.textContent = "Select + Ctrl/Cmd-C";
+  const text = els.arShareLink.value;
+  let copied = false;
+
+  // navigator.clipboard is undefined in some contexts (older iOS Safari,
+  // some in-app browsers) and can also reject even when present -- either
+  // way, fall through to the legacy selection-based copy below rather than
+  // leaving the user with no working copy path.
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      copied = true;
+    } catch {
+      // fall through
+    }
   }
+
+  if (!copied) {
+    // iOS Safari has a long-standing quirk where .select() on a readonly
+    // input doesn't produce a real selection execCommand('copy') can act
+    // on -- toggling readonly off for the moment of selection is the known
+    // workaround. "Select + Ctrl/Cmd-C" (the previous fallback message) is
+    // meaningless on a phone with no keyboard, so this also selects the
+    // text for real and tells the user what to actually do on a touch
+    // device if execCommand itself isn't available either.
+    els.arShareLink.removeAttribute("readonly");
+    els.arShareLink.focus();
+    els.arShareLink.setSelectionRange(0, text.length);
+    try {
+      copied = document.execCommand("copy");
+    } catch {
+      copied = false;
+    }
+    els.arShareLink.setAttribute("readonly", "");
+  }
+
+  els.arCopyLinkBtn.textContent = copied ? "Copied!" : "Long-press the link above to copy";
   setTimeout(() => {
     els.arCopyLinkBtn.textContent = original;
-  }, 1500);
+  }, 1800);
 });
 
 function downloadBlob(blob, filename) {
