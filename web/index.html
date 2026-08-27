@@ -365,11 +365,16 @@
               id="ar-model-viewer"
               camera-controls
               ar
-              ar-modes="scene-viewer quick-look webxr"
+              ar-modes="webxr scene-viewer quick-look"
+              ar-scale="fixed"
+              ar-placement="floor"
               shadow-intensity="1"
               exposure="1"
             >
               <div slot="hotspot-dims" class="ar-hotspot" id="ar-dims-hotspot" data-position="0 0 0" data-normal="0 1 0"></div>
+              <button type="button" slot="ar-button" id="ar-launch-btn" class="ar-launch-btn" aria-label="View cookie tray in augmented reality">
+                <span aria-hidden="true">📱</span> View in AR
+              </button>
             </model-viewer>
             <p class="ar-note" id="ar-note"></p>
           </div>
