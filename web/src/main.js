@@ -59,6 +59,7 @@ const els = {
   arTargetSeg: document.getElementById("ar-target-seg"),
   arTargetProductBtn: document.getElementById("ar-target-product-btn"),
   arModelViewer: document.getElementById("ar-model-viewer"),
+  arLaunchBtn: document.getElementById("ar-launch-btn"),
   arViewerStatus: document.getElementById("ar-viewer-status"),
   arFillToggle: document.getElementById("ar-fill-toggle"),
   arDimsToggle: document.getElementById("ar-dims-toggle"),
@@ -888,17 +889,22 @@ updateDimsOverlay();
 // The QR code just encodes the live location.href (kept in sync with the
 // current build by updateURLFromState() above) -- scanning it opens this
 // exact tray/product on the phone, which rebuilds it locally from the URL
-// params. No upload, no backend, no file transfer. The in-app "View in AR"
-// button (model-viewer's own, auto-hidden when the device/browser can't do
-// AR) launches Scene Viewer on Android via the GLB, and AR Quick Look on iOS
-// SAFARI via a client-side-generated USDZ (see arExport.js). Apple restricts
-// launching Quick Look to Safari itself -- Chrome/Firefox/etc on iOS are all
-// WebKit under the hood but cannot trigger it, so those get an inline note
-// pointing them at Safari instead of a silently-broken AR button.
+// params. No upload, no backend, no file transfer. The panel's "View in AR"
+// button (slotted into model-viewer's own ar-button slot, so it's
+// automatically shown/hidden by real capability detection -- see
+// canActivateAR/updateArAvailabilityNote below) launches WebXR or Scene
+// Viewer on Android via the GLB, and AR Quick Look on iOS via a
+// client-side-generated USDZ (see arExport.js) -- on ANY iOS browser, not
+// just Safari: model-viewer 4.3.1 already supports handing Quick Look off
+// from third-party iOS browsers (Chrome/Firefox/Edge, all WebKit under the
+// hood), gated only on the app providing iosSrc.
 let arPanelOpen = false;
 let arTarget = "tray";
 let currentModelObjectUrl = null;
 let currentUsdzObjectUrl = null;
+// Sticky once the user manually touches the "Lay flat" toggle -- after that,
+// switching AR target no longer overrides their choice (see setArTarget).
+let arFlatToggleUserSet = false;
 
 async function ensureModelViewerLoaded() {
   if (!customElements.get("model-viewer")) {
@@ -911,42 +917,96 @@ async function ensureModelViewerLoaded() {
   }
 }
 
-/** All iOS browsers (Chrome/Firefox/Edge included) run on WebKit, but only
- * actual Safari can hand off to AR Quick Look -- Apple reserves that OS
- * capability to Safari itself. Chrome/Firefox/etc on iOS identify via
- * CriOS/FxiOS/EdgiOS/OPiOS tokens Safari's own UA never has. iPadOS reports
- * as "MacIntel" in its UA, distinguished from a real Mac by touch support. */
+/** Only used to decide whether it's worth generating a USDZ at all (Android
+ * and desktop never consult iosSrc, so skip that extra export there -- a
+ * real cost, since USDZ is an uncompressed zip that can run several MB for
+ * a detailed tray). This is NOT used to gate AR availability by browser:
+ * model-viewer 4.3.1 already supports AR Quick Look handoff from iOS Chrome/
+ * Firefox/Edge/DuckDuckGo (all WebKit-based), not just Safari -- see
+ * IS_AR_QUICKLOOK_CANDIDATE in its own constants.ts, which does real feature
+ * detection (`relList.supports('ar')`) for third-party iOS browsers rather
+ * than assuming they can't. iPadOS reports as "MacIntel" in its UA,
+ * distinguished from a real Mac by touch support. */
 function detectIOSBrowser() {
   const ua = navigator.userAgent;
   const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-  if (!isIOS) return { isIOS: false, isSafari: false };
-  const isSafari = /Safari/.test(ua) && !/CriOS|FxiOS|EdgiOS|OPiOS|Chrome|Android/.test(ua);
-  return { isIOS: true, isSafari };
+  return { isIOS };
 }
 
-/** Static per-session (device/browser doesn't change mid-visit) -- set once
- * when the panel first opens. */
+/** Static per-session guidance text (device/browser doesn't change mid-visit)
+ * -- set once when the panel first opens. Deliberately browser-agnostic: it
+ * used to steer non-Safari iOS users to "open this in Safari," which is no
+ * longer true (see detectIOSBrowser above) and actively worse UX. Genuine
+ * AR unavailability (checked via model-viewer's own canActivateAR, a real
+ * capability signal) is surfaced separately, only after the model has
+ * actually finished loading -- see updateArAvailabilityNote(). */
 function renderArNote() {
-  const { isIOS, isSafari } = detectIOSBrowser();
-  if (isIOS && !isSafari) {
-    els.arNote.className = "ar-note ios-guidance";
-    els.arNote.textContent = "";
-    const span = document.createElement("span");
-    span.textContent = "On iPhone, AR opens in Safari — open this link in Safari to place it in your space.";
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "btn ar-note-copy-btn";
-    btn.textContent = "Copy link";
-    btn.addEventListener("click", () => els.arCopyLinkBtn.click()); // reuse the existing copy-link handler
-    els.arNote.append(span, btn);
+  const { isIOS } = detectIOSBrowser();
+  els.arNote.className = "ar-note";
+  els.arNote.textContent = isIOS
+    ? "Tap “View in AR” to place this in your space. Drag the model to move it, or exit AR and tap the button again to start over."
+    : "On a phone: tap “View in AR” to place this in your space, then drag to move it. On desktop: rotate & zoom the 3D model above.";
+}
+
+/** Runs once <model-viewer> has actually finished loading the current model
+ * (so canActivateAR reflects real capability, not a stale/default value).
+ * Appends a short, non-technical note ONLY when AR is genuinely unavailable
+ * on this device/browser -- never assumed from a browser check. */
+function updateArAvailabilityNote() {
+  // Idempotent: safe to call after every refresh (fresh export or cache
+  // hit) without piling up duplicate notes.
+  const existing = els.arNote?.querySelector(".ar-note-unavailable");
+  if (existing) existing.remove();
+  if (!els.arModelViewer || els.arModelViewer.canActivateAR) return;
+  const span = document.createElement("span");
+  span.className = "ar-note-unavailable";
+  span.textContent = " AR isn't available on this device or browser — you can still rotate and zoom the 3D model above.";
+  els.arNote.append(span);
+}
+
+// AR launch state machine (Ready -> Launching -> Ready), independent of
+// refreshARModel's own asset-preparation state above. Guards against a
+// rapid double-tap re-entering activateAR() mid-launch: the slotted button
+// stops the click from bubbling to model-viewer's own ar-button container
+// while a launch is already in flight.
+const AR_LAUNCH_DEFAULT_LABEL = "📱 View in AR";
+let arLaunching = false;
+let arLaunchResetTimer = null;
+
+function resetArLaunchState(label) {
+  arLaunching = false;
+  if (arLaunchResetTimer) {
+    clearTimeout(arLaunchResetTimer);
+    arLaunchResetTimer = null;
+  }
+  if (els.arLaunchBtn) els.arLaunchBtn.textContent = label ?? AR_LAUNCH_DEFAULT_LABEL;
+}
+
+els.arLaunchBtn?.addEventListener("click", (event) => {
+  if (arLaunching) {
+    event.preventDefault();
+    event.stopImmediatePropagation(); // don't let this second tap reach the ar-button container's own activateAR() call
     return;
   }
-  els.arNote.className = "ar-note";
-  els.arNote.textContent =
-    isIOS && isSafari
-      ? "Tap the AR icon in the viewer to place this in your space with AR Quick Look. Drag the model to move it, or exit AR and tap the icon again to start over."
-      : "Android (Chrome): tap the AR icon in the viewer to place this in your space, then drag to move it. Exit AR and tap the icon again to start over. Desktop: rotate & zoom the 3D model above.";
-}
+  arLaunching = true;
+  els.arLaunchBtn.textContent = "Opening AR…";
+  // Belt-and-suspenders release: iOS Quick Look navigates away from the
+  // page entirely, so no further ar-status events are guaranteed once that
+  // happens -- the lock can't depend solely on hearing back from
+  // model-viewer, or a launch that never reports back would wedge the
+  // button forever.
+  arLaunchResetTimer = setTimeout(() => resetArLaunchState(), 4000);
+});
+
+els.arModelViewer?.addEventListener("ar-status", (event) => {
+  const status = event.detail?.status;
+  console.debug(`[AR] ar-status: ${status}`);
+  if (status === "failed") {
+    resetArLaunchState("Try AR again");
+  } else if (status === "object-placed" || status === "not-presenting") {
+    resetArLaunchState();
+  }
+});
 
 /** Whether "Show product fill" is meaningful right now (tray target + a
  * configured product) -- disabled and force-unchecked otherwise. */
@@ -962,6 +1022,14 @@ function setArTarget(target) {
     b.classList.toggle("on", b.dataset.segValue === target);
   }
   syncArFillToggleAvailability();
+  // A standalone product is naturally presented resting on its broad face
+  // (how it'd actually sit on a table), unlike the tray, which already
+  // sits base-down by default -- so default the toggle accordingly per
+  // target, but only until the user makes their own choice, which then
+  // sticks regardless of which target they're viewing.
+  if (!arFlatToggleUserSet && els.arFlatToggle) {
+    els.arFlatToggle.checked = target === "product";
+  }
   refreshARModel();
 }
 
@@ -977,6 +1045,7 @@ els.arFillToggle?.addEventListener("change", () => {
 });
 
 els.arFlatToggle?.addEventListener("change", () => {
+  arFlatToggleUserSet = true; // stops setArTarget from overriding the user's own choice
   if (arPanelOpen) refreshARModel(); // re-export laid flat vs. the upright (base-down) default
 });
 
@@ -1093,16 +1162,28 @@ function waitForModelViewerLoad(mv, timeoutMs) {
 // finishes -- each call only touches the DOM if it's still the latest.
 let arRefreshSeq = 0;
 
+// Config-key cache: JSON.stringify of every input that actually affects the
+// exported GLB/USDZ. All of {lastValidParams, lastFillSpec, spec} are plain,
+// JSON-safe POJOs (never mutated in place -- always replaced wholesale on a
+// successful rebuild), so stringifying them is cheap and correctly detects
+// "nothing AR-relevant changed" -- e.g. re-opening the panel on the same
+// target, or a refreshARPanelIfOpen() call after a rebuild that didn't
+// actually touch this target's geometry. A cache hit skips straight past
+// the GLB/USDZ export + model-viewer reparse entirely (spec: avoid
+// regenerating AR assets unnecessarily). Reset to null on any failed
+// export so a later identical-looking config still retries instead of
+// permanently caching a failure.
+let lastArCacheKey = null;
+
 /** Export the currently-selected target (tray, optionally with the product
  * fill baked in, or a standalone product) as a display-only GLB (Android /
- * desktop preview) and, on iOS Safari only, an additional USDZ (AR Quick
- * Look). Never touches the STL/STEP export path (worker.js) -- entirely
- * separate three.js-side geometry (see arExport.js). */
+ * desktop preview) and, on iOS, an additional USDZ (AR Quick Look -- Safari
+ * AND third-party iOS browsers alike, see detectIOSBrowser). Never touches
+ * the STL/STEP export path (worker.js) -- entirely separate three.js-side
+ * geometry (see arExport.js). */
 async function refreshARModel() {
   if (!arPanelOpen) return;
   const seq = ++arRefreshSeq;
-  els.arViewerStatus.textContent = "Preparing 3D model...";
-  els.arViewerStatus.classList.remove("hidden");
   try {
     console.debug("[AR] loading <model-viewer>...");
     await withTimeout(ensureModelViewerLoaded(), AR_STEP_TIMEOUT_MS, "Loading the 3D viewer");
@@ -1112,6 +1193,28 @@ async function refreshARModel() {
     const includeFill = arTarget === "tray" && els.arFillToggle.checked && !!lastFillSpec;
     const layFlat = !!els.arFlatToggle?.checked;
     const spec = arTarget === "product" ? productSpecForExport() : null;
+    const { isIOS } = detectIOSBrowser();
+
+    const cacheKey = JSON.stringify({
+      arTarget,
+      includeFill,
+      layFlat,
+      isIOS,
+      params: lastValidParams,
+      fillSpec: includeFill ? lastFillSpec : null,
+      spec,
+    });
+    if (cacheKey === lastArCacheKey && currentModelObjectUrl) {
+      console.debug("[AR] config unchanged since last export -- reusing cached GLB/USDZ");
+      updateArDimsHotspot();
+      updateArAvailabilityNote();
+      els.arViewerStatus.classList.add("hidden");
+      return;
+    }
+
+    els.arViewerStatus.textContent = "Preparing 3D model...";
+    els.arViewerStatus.classList.remove("hidden");
+
     // Built fresh here rather than reused from viewer.fillGroup, which is
     // only populated while the main viewport's OWN "Fill" toggle is on --
     // a separate control from this panel's "Show product fill" toggle. The
@@ -1135,11 +1238,13 @@ async function refreshARModel() {
     const modelViewerLoaded = waitForModelViewerLoad(els.arModelViewer, AR_STEP_TIMEOUT_MS);
     els.arModelViewer.src = currentModelObjectUrl;
 
-    // USDZ is only ever consulted by iOS Safari's AR button -- skip
+    // USDZ is only ever consulted by iOS's AR button (Quick Look) -- skip
     // generating it anywhere else (real cost: it's an uncompressed zip, can
-    // run several MB for a detailed tray).
-    const { isIOS, isSafari } = detectIOSBrowser();
-    if (isIOS && isSafari) {
+    // run several MB for a detailed tray). model-viewer 4.3.1 already
+    // supports handing Quick Look off from third-party iOS browsers, not
+    // just Safari, so this is gated purely on platform (isIOS), never on
+    // which iOS browser it is.
+    if (isIOS) {
       console.debug("[AR] exporting USDZ for AR Quick Look...");
       const usdzBlob = await withTimeout(
         arTarget === "product" ? exportProductUSDZ(spec, layFlat) : exportTrayUSDZ(viewer, arFillGroup, layFlat),
@@ -1162,15 +1267,35 @@ async function refreshARModel() {
     if (seq !== arRefreshSeq) return;
     console.debug("[AR] <model-viewer> reported load; model is visible");
 
+    lastArCacheKey = cacheKey;
     updateArDimsHotspot();
+    updateArAvailabilityNote();
     els.arViewerStatus.classList.add("hidden");
   } catch (err) {
     if (seq !== arRefreshSeq) return; // superseded by a newer refresh -- don't clobber its UI
+    lastArCacheKey = null; // don't cache a failure -- a later identical-looking config should still retry
     console.error("[AR] failed to prepare 3D model:", err);
-    els.arViewerStatus.textContent =
-      arTarget === "product" && !lastFillSpec ? "No product configured yet." : `Couldn't prepare model: ${err.message}`;
+    els.arViewerStatus.textContent = arTarget === "product" && !lastFillSpec ? "No product configured yet." : humanizeARError(err);
     els.arViewerStatus.classList.remove("hidden");
   }
+}
+
+// Every error message this app itself throws inside the AR pipeline is
+// already written to be shown as-is (withTimeout's own labels, "No tray
+// built yet", model-viewer's load/error summary). Anything else is an
+// unexpected failure from a dependency (GLTFExporter/USDZExporter/etc) whose
+// raw message (a bare "Failed to execute ..." or "undefined is not a
+// function") would be confusing and unactionable in the UI -- so only known,
+// human-authored messages are shown verbatim; everything else falls back to
+// a generic message while the real error still goes to the console above.
+const KNOWN_AR_ERROR_PATTERNS = [/timed out after/, /^No tray built yet$/, /couldn't load the model/, /did not finish loading/];
+
+function humanizeARError(err) {
+  const message = err?.message ?? "";
+  if (KNOWN_AR_ERROR_PATTERNS.some((re) => re.test(message))) {
+    return `Couldn't prepare model: ${message}`;
+  }
+  return "Couldn't prepare the AR model right now. Try again, or check your connection.";
 }
 
 /** QR encodes the live, params-carrying URL -- generated client-side only
@@ -1349,4 +1474,9 @@ window.__cookieTray = {
   detectIOSBrowser,
   get arPanelOpen() { return arPanelOpen; },
   get arTarget() { return arTarget; },
+  get arCacheKey() { return lastArCacheKey; },
+  get arLaunching() { return arLaunching; },
+  get canActivateAR() { return els.arModelViewer?.canActivateAR ?? null; },
+  get currentModelObjectUrl() { return currentModelObjectUrl; },
+  get currentUsdzObjectUrl() { return currentUsdzObjectUrl; },
 };
