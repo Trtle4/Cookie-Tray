@@ -20,6 +20,7 @@ export const DEFAULTS = Object.freeze({
   divider: null, // internal cell-to-cell wall thickness; defaults to wall
   nCols: 1, // columns: splits each cellLen-long trough into nCols end-to-end sub-cells
   colDivider: null, // internal cell-to-cell wall thickness along the column axis; defaults to divider
+  nColsPerRow: null, // asymmetric layout: per-row cell count array, length nCells; overrides nCols when set
   floor: 2.5,
   cornerR: 8.0,
   draftDeg: 5.0,
@@ -62,6 +63,17 @@ export function makeTrayParams(rawInput = {}) {
   if (p.longAxis !== "X" && p.longAxis !== "Y") {
     errors.push({ field: "longAxis", message: `long_axis must be "X" or "Y", got ${JSON.stringify(p.longAxis)}` });
   }
+  if (p.nColsPerRow !== null && p.nColsPerRow !== undefined) {
+    if (p.nColsPerRow.length !== p.nCells) {
+      errors.push({
+        field: "nColsPerRow",
+        message: `n_cols_per_row must have exactly n_cells (${p.nCells}) entries, got ${p.nColsPerRow.length}`,
+      });
+    }
+    if (p.nColsPerRow.some((c) => !(c >= 1))) {
+      errors.push({ field: "nColsPerRow", message: `every n_cols_per_row entry must be >= 1, got ${JSON.stringify(p.nColsPerRow)}` });
+    }
+  }
 
   // Guard 1: cradle_r = min(cradle_r, cell_wid/2), warn if clamped.
   const maxCradleR = p.cellWid / 2;
@@ -100,11 +112,26 @@ export function makeTrayParams(rawInput = {}) {
 
   // Derived values (§3 "Derived") — computed after cradle_r/divider are resolved.
   const lipT = 3 * p.nozzle;
-  // Outer walls (both ends) are `wall`; the nCols-1 internal dividers
+  // Per-row cell count -- nColsPerRow verbatim when it's a valid array
+  // (asymmetric layout), else nCols uniformly for every row (the default,
+  // pre-asymmetric behavior). Falls back to uniform on a malformed array
+  // (wrong length) so derived math never NaNs/Infinities while the UI is
+  // showing the validation error above -- a real build never proceeds with
+  // errors.length > 0 regardless.
+  const effectiveColCounts =
+    p.nColsPerRow !== null && p.nColsPerRow !== undefined && p.nColsPerRow.length === p.nCells
+      ? p.nColsPerRow
+      : new Array(p.nCells).fill(p.nCols);
+  // The row with the most cells -- this sizes topL so every row's cells
+  // fit, including the widest one; shorter rows are then centered within
+  // that same footprint (see geometry.js's cell-cutting loop).
+  const maxCols = Math.max(...effectiveColCounts, 1);
+  // Outer walls (both ends) are `wall`; the maxCols-1 internal dividers
   // between column-cells are `colDivider`. Mirrors topW below on the
-  // orthogonal axis; nCols=1 (the default) collapses this back to the
-  // original cellLen + 2*wall.
-  const topL = p.nCols * p.cellLen + 2 * p.wall + (p.nCols - 1) * p.colDivider;
+  // orthogonal axis; uniform rows (nColsPerRow unset) collapse maxCols back
+  // to plain nCols -- identical to the original cellLen + 2*wall formula
+  // when nCols=1.
+  const topL = maxCols * p.cellLen + 2 * p.wall + (maxCols - 1) * p.colDivider;
   // Outer walls (both sides) are `wall`; the nCells-1 internal dividers
   // between cells are `divider`.
   const topW = p.nCells * p.cellWid + 2 * p.wall + (p.nCells - 1) * p.divider;

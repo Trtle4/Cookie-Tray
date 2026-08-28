@@ -31,6 +31,7 @@ class TrayParams:
     divider: Optional[float] = None  # internal cell-to-cell wall thickness; defaults to wall
     n_cols: int = 1  # columns: splits each cell_len-long trough into n_cols end-to-end sub-cells
     col_divider: Optional[float] = None  # internal cell-to-cell wall thickness along the column axis; defaults to divider
+    n_cols_per_row: Optional[list[int]] = None  # asymmetric layout: per-row cell count, len == n_cells; overrides n_cols when set
     floor: float = 2.5
     corner_r: float = 8.0
     draft_deg: float = 5.0
@@ -58,6 +59,14 @@ class TrayParams:
             raise ValueError(f"n_cols must be >= 1, got {self.n_cols}")
         if self.long_axis not in ("X", "Y"):
             raise ValueError(f'long_axis must be "X" or "Y", got {self.long_axis!r}')
+        if self.n_cols_per_row is not None:
+            if len(self.n_cols_per_row) != self.n_cells:
+                raise ValueError(
+                    f"n_cols_per_row must have exactly n_cells ({self.n_cells}) entries, "
+                    f"got {len(self.n_cols_per_row)}"
+                )
+            if any(c < 1 for c in self.n_cols_per_row):
+                raise ValueError(f"every n_cols_per_row entry must be >= 1, got {self.n_cols_per_row}")
 
         # Guard 1: cradle_r = min(cradle_r, cell_wid/2), warn if clamped.
         max_cradle_r = self.cell_wid / 2.0
@@ -165,12 +174,31 @@ class TrayParams:
         return 3 * self.nozzle
 
     @property
+    def effective_col_counts(self) -> list[int]:
+        """Per-row cell count -- ``n_cols_per_row`` verbatim when set
+        (asymmetric layout), else ``n_cols`` uniformly for every row (the
+        default, pre-asymmetric behavior). Always length ``n_cells``."""
+        if self.n_cols_per_row is not None:
+            return list(self.n_cols_per_row)
+        return [self.n_cols] * self.n_cells
+
+    @property
+    def max_cols(self) -> int:
+        """The row with the most cells. This is what sizes the tray's outer
+        length (top_L) -- every row's cells must fit within it, including
+        the widest row -- with shorter rows then centered inside that same
+        footprint (see geometry.py's cell-cutting loop)."""
+        return max(self.effective_col_counts)
+
+    @property
     def top_L(self) -> float:
-        # Outer walls (both ends) are `wall`; the n_cols-1 internal dividers
-        # between column-cells are `col_divider`. Mirrors top_W below on the
-        # orthogonal axis. n_cols=1 (the default) collapses this back to the
-        # original cell_len + 2*wall.
-        return self.n_cols * self.cell_len + 2 * self.wall + (self.n_cols - 1) * self.col_divider
+        # Outer walls (both ends) are `wall`; the max_cols-1 internal
+        # dividers between column-cells are `col_divider`. Mirrors top_W
+        # below on the orthogonal axis. Uniform rows (n_cols_per_row unset)
+        # collapse max_cols back to plain n_cols -- identical to the
+        # original cell_len + 2*wall formula when n_cols=1.
+        n = self.max_cols
+        return n * self.cell_len + 2 * self.wall + (n - 1) * self.col_divider
 
     @property
     def top_W(self) -> float:

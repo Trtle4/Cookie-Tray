@@ -104,6 +104,13 @@ export function encodeStateToParams({ trayInput, productInput }) {
   const out = new URLSearchParams();
   encodeGroup(trayInput, TRAY_KEY_MAP, TRAY_DEFAULTS, out);
   encodeGroup(productInput, PRODUCT_KEY_MAP, PRODUCT_DEFAULTS, out);
+  // nColsPerRow (asymmetric per-row layout) is an array, not a plain
+  // number/string -- doesn't fit encodeGroup's generic per-field loop, so
+  // it's handled here as its own comma-joined value. Omitted entirely in
+  // uniform mode (the common case), same as any other unset field.
+  if (Array.isArray(trayInput.nColsPerRow) && trayInput.nColsPerRow.length > 0) {
+    out.set("ncr", trayInput.nColsPerRow.join(","));
+  }
   return out;
 }
 
@@ -127,6 +134,15 @@ export function decodeStateFromParams(searchParams) {
     hasAny = true;
     const raw = searchParams.get(shortKey);
     productInput[longKey] = STRING_FIELDS.has(longKey) ? raw : parseFloat(raw);
+  }
+  if (searchParams.has("ncr")) {
+    hasAny = true;
+    const counts = searchParams
+      .get("ncr")
+      .split(",")
+      .map((s) => parseInt(s, 10))
+      .filter((n) => Number.isFinite(n) && n >= 1);
+    if (counts.length > 0) trayInput.nColsPerRow = counts;
   }
 
   return { trayInput, productInput, hasAny };

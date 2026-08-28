@@ -122,7 +122,7 @@ export function buildFillGroup({
   edgeRBot = 0,
   packMode = "standing",
 }) {
-  const { nCells, cellWid, cellLen, wall, divider, nCols = 1, colDivider, floor, longAxis } = params;
+  const { nCells, cellWid, cellLen, wall, divider, nCols = 1, colDivider, nColsPerRow, floor, longAxis } = params;
   const pitch = cellWid + divider; // matches TrayParams.pitch: cell center-to-center spacing
   const topW = nCells * cellWid + 2 * wall + (nCells - 1) * divider;
   // Columns: mirrors pitch/topW above on the orthogonal axis. colDivider
@@ -131,7 +131,14 @@ export function buildFillGroup({
   // guard anyway since fill.js can be called with a partial params object.
   const resolvedColDivider = colDivider ?? divider ?? wall;
   const colPitch = cellLen + resolvedColDivider; // matches TrayParams.colPitch
-  const topL = nCols * cellLen + 2 * wall + (nCols - 1) * resolvedColDivider;
+  // Per-row cell count -- nColsPerRow verbatim when it's a valid array
+  // (asymmetric layout), else nCols uniformly for every row. Mirrors
+  // params.js/geometry.js's own effectiveColCounts/maxCols exactly, so the
+  // fill overlay always lands in the same pockets the actual solid cuts.
+  const effectiveColCounts = nColsPerRow != null && nColsPerRow.length === nCells ? nColsPerRow : new Array(nCells).fill(nCols);
+  const maxCols = Math.max(...effectiveColCounts, 1);
+  const topL = maxCols * cellLen + 2 * wall + (maxCols - 1) * resolvedColDivider;
+  const maxInnerLen = maxCols * cellLen + (maxCols - 1) * resolvedColDivider;
 
   const group = new THREE.Group();
   // Solid/opaque (not translucent): overlapping products and the cradle
@@ -173,20 +180,25 @@ export function buildFillGroup({
     geometry = new THREE.CylinderGeometry(cookieDiameter / 2, cookieDiameter / 2, renderThickness, 48);
   }
 
-  // Columns (nCols, default 1) split each row's cookiesPerCell products
-  // across nCols side-by-side column-cells instead of one long single-file
-  // line -- same split every row, computed once. nCols=1 gives a single
-  // column holding the full count, identical to the pre-columns behavior.
-  const colCounts = splitAcrossColumns(cookiesPerCell, nCols);
-
   // Build in the canonical (long axis = X) frame, then rotate the whole
   // group exactly like buildTray does for longAxis === "Y" — keeps the fill
   // guaranteed consistent with the actual solid instead of hand-swapping x/y.
   for (let j = 0; j < nCells; j++) {
     const cy = -topW / 2 + wall + cellWid / 2 + j * pitch;
-    for (let k = 0; k < nCols; k++) {
+    // This row's own cell count (uniform nCols, or its own nColsPerRow
+    // entry in asymmetric mode) and the same centering offset buildTray
+    // applies to a shorter row -- see geometry.js's rowOffset.
+    const rowCount = effectiveColCounts[j];
+    const rowInnerLen = rowCount * cellLen + (rowCount - 1) * resolvedColDivider;
+    const rowOffset = (maxInnerLen - rowInnerLen) / 2;
+    // Columns split each row's OWN cookiesPerCell products across this
+    // row's cell count -- computed per row, since asymmetric rows can have
+    // different counts. Uniform mode gives every row the same split,
+    // matching the pre-asymmetric behavior exactly.
+    const colCounts = splitAcrossColumns(cookiesPerCell, rowCount);
+    for (let k = 0; k < rowCount; k++) {
       // Center of THIS column-cell along X (mirrors buildTray's own cx).
-      const colCx = -topL / 2 + wall + cellLen / 2 + k * colPitch;
+      const colCx = -topL / 2 + wall + rowOffset + cellLen / 2 + k * colPitch;
       const countInCol = colCounts[k];
 
       if (packMode === "stack") {

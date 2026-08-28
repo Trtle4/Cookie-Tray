@@ -30,6 +30,10 @@ const els = {
   perCellSegBtn: document.querySelector('#distribute-by-seg .seg-btn[data-seg-value="cookiesPerCell"]'),
   packMode: document.querySelector('select[name="packMode"]'),
   packModeSeg: document.getElementById("pack-mode-seg"),
+  layoutModeSeg: document.getElementById("layout-mode-seg"),
+  nColsUniformField: document.getElementById("nCols-uniform-field"),
+  nColsPerRowField: document.getElementById("nCols-per-row-field"),
+  colPerRowList: document.getElementById("col-per-row-list"),
   productType: document.querySelector('select[name="productType"]'),
   roundFields: document.getElementById("product-round-fields"),
   rectFields: document.getElementById("product-rect-fields"),
@@ -205,6 +209,18 @@ function applyURLParamsToForm() {
     if (el) el.value = val;
   }
 
+  // nColsPerRow (asymmetric layout) has no single named form field --
+  // decodeStateFromParams hands it back as a real array, not a form value,
+  // so it's applied directly to the layout-mode state instead of the loop
+  // above (which silently no-ops for it, same as it does for anything else
+  // without a matching element).
+  if (Array.isArray(trayInput.nColsPerRow)) {
+    colsPerRowValues = [...trayInput.nColsPerRow];
+    setLayoutMode("custom");
+  } else {
+    setLayoutMode("uniform");
+  }
+
   // Re-sync the presentational bits a real user interaction would normally
   // drive (segmented "on" state, round/rect + per-cell field visibility),
   // and -- via the productType/distributeBy "change" listeners -- apply
@@ -330,6 +346,11 @@ els.trayForm.addEventListener("input", (event) => {
     // No-op if cellLen was already manually overridden.
     applyProductSuggestions();
   }
+  if (name === "nCells" && layoutMode === "custom") {
+    // Per-row list must track the row count -- add/remove rows to match.
+    renderColsPerRowInputs();
+    applyProductSuggestions();
+  }
   scheduleRebuild();
 });
 
@@ -408,6 +429,7 @@ function readTrayInput() {
     divider: raw.divider,
     nCols: raw.nCols,
     colDivider: raw.colDivider,
+    nColsPerRow: layoutMode === "custom" ? [...colsPerRowValues] : null,
     floor: raw.floor,
     cornerR: raw.cornerR,
     draftDeg: raw.draftDeg,
@@ -462,6 +484,84 @@ function currentNCols() {
   return Number.isFinite(n) && n >= 1 ? n : 1;
 }
 
+function currentNCellsCount() {
+  const raw = els.trayForm.elements.nCells.value;
+  const n = raw !== "" ? parseInt(raw, 10) : 1;
+  return Number.isFinite(n) && n >= 1 ? n : 1;
+}
+
+// ---- Asymmetric layout: per-row cell counts ("3 cells one side, 4 the
+// other") as an alternative to the single uniform Columns field. Custom
+// mode's per-row values live here (colsPerRowValues), not on any single
+// form field -- readTrayInput() reads it directly (see nColsPerRow above),
+// same pattern as arTarget/exportTarget elsewhere in this file. ----
+let layoutMode = "uniform"; // "uniform" | "custom"
+let colsPerRowValues = [];
+
+/** The nCols-equivalent to feed the calculator's size-suggestion math
+ * (suggestFromProduct) and checkProductFit: in custom mode, the worst case
+ * for SIZING is the widest row max(...) would ask for less cellLen than
+ * some other row actually needs -- min(...) (the row with the FEWEST
+ * cells, so the densest) is what a suggested cellLen/cellH must stay safe
+ * against. */
+function nColsForCalculator() {
+  if (layoutMode === "custom" && colsPerRowValues.length) return Math.min(...colsPerRowValues);
+  return currentNCols();
+}
+
+/** Keep colsPerRowValues in sync with the current nCells count (adding
+ * rows extends with the last row's own value, or the uniform Columns
+ * value if the list was empty; removing rows truncates from the end), then
+ * re-render the per-row input list from it. */
+function renderColsPerRowInputs() {
+  const n = currentNCellsCount();
+  if (colsPerRowValues.length !== n) {
+    const fillValue = colsPerRowValues[colsPerRowValues.length - 1] ?? currentNCols();
+    while (colsPerRowValues.length < n) colsPerRowValues.push(fillValue);
+    colsPerRowValues.length = n;
+  }
+  if (!els.colPerRowList) return;
+  els.colPerRowList.innerHTML = "";
+  colsPerRowValues.forEach((val, i) => {
+    const row = document.createElement("div");
+    row.className = "col-per-row-item";
+    const label = document.createElement("span");
+    label.className = "col-per-row-label";
+    label.textContent = `Row ${i + 1}`;
+    const input = document.createElement("input");
+    input.type = "number";
+    input.min = "1";
+    input.step = "1";
+    input.value = String(val);
+    input.setAttribute("aria-label", `Row ${i + 1} cell count`);
+    input.addEventListener("input", () => {
+      const v = parseInt(input.value, 10);
+      colsPerRowValues[i] = Number.isFinite(v) && v >= 1 ? v : 1;
+      applyProductSuggestions(); // minCols may have changed -- re-check suggested sizing
+      scheduleRebuild();
+    });
+    row.append(label, input);
+    els.colPerRowList.appendChild(row);
+  });
+}
+
+function setLayoutMode(mode) {
+  layoutMode = mode;
+  for (const b of els.layoutModeSeg?.querySelectorAll(".seg-btn") ?? []) {
+    b.classList.toggle("on", b.dataset.segValue === mode);
+  }
+  if (els.nColsUniformField) els.nColsUniformField.style.display = mode === "uniform" ? "" : "none";
+  if (els.nColsPerRowField) els.nColsPerRowField.style.display = mode === "custom" ? "" : "none";
+  if (mode === "custom") renderColsPerRowInputs();
+  applyProductSuggestions();
+  scheduleRebuild();
+}
+
+for (const btn of els.layoutModeSeg?.querySelectorAll(".seg-btn") ?? []) {
+  btn.addEventListener("click", () => setLayoutMode(btn.dataset.segValue));
+}
+setLayoutMode("uniform"); // establish the initial "on" state to match the default
+
 /** User typed into the pitch field: back-derive divider = pitch - cellWid. */
 function applyPitchEdit() {
   const pitchRaw = els.trayForm.elements.pitch.value;
@@ -484,7 +584,7 @@ function refreshPitchDisplay() {
 function applyProductSuggestions() {
   let suggestion;
   try {
-    suggestion = suggestFromProduct({ ...readProductInput(), nCols: currentNCols() });
+    suggestion = suggestFromProduct({ ...readProductInput(), nCols: nColsForCalculator() });
   } catch {
     suggestion = null; // invalid product input -- leave tray fields alone
   }
@@ -574,8 +674,13 @@ function checkProductFit(params, fillSpec) {
 
   // Matches calculator.js's suggestFromProduct: every pocket (after the
   // nCols split) gets the same count, whichever pack mode is active --
-  // only which physical dimension that count drives differs below.
-  const maxPerColCell = Math.ceil(fillSpec.cookiesPerCell / (params.nCols || 1));
+  // only which physical dimension that count drives differs below. In
+  // asymmetric mode (nColsPerRow set), the densest pocket is in whichever
+  // row has the FEWEST cells -- same per-row product total, split across
+  // fewer pockets there -- so that's the worst case to check against.
+  const minCols =
+    params.nColsPerRow && params.nColsPerRow.length ? Math.min(...params.nColsPerRow) : params.nCols || 1;
+  const maxPerColCell = Math.ceil(fillSpec.cookiesPerCell / minCols);
 
   const warnings = [];
   if (crossWidth > params.cellWid) {
@@ -712,6 +817,10 @@ function filenameFor(params, ext) {
  * should reflect what actually built, not input that just errored). */
 function updateURLFromState() {
   const trayInput = formToObject(els.trayForm);
+  // nColsPerRow (asymmetric layout) has no backing form field -- it lives
+  // in colsPerRowValues (see readTrayInput()), so formToObject() alone
+  // can't see it and the shared link would silently drop back to uniform.
+  trayInput.nColsPerRow = layoutMode === "custom" ? [...colsPerRowValues] : null;
   const productInput = formToObject(els.productForm);
   const qs = encodeStateToParams({ trayInput, productInput }).toString();
   const url = new URL(location.href);
@@ -756,7 +865,26 @@ function filenameForProduct(fillSpec, ext) {
   return `cookieproduct_d${fmtNum(fillSpec.cookieDiameter)}x${fmtNum(fillSpec.cookieThickness)}.${ext}`;
 }
 
+// The worker is a single JS thread: buildTray() is synchronous, CPU-bound
+// OCC/WASM work, so two overlapping api.build() calls never run in
+// parallel -- the second just queues behind the first and burns a full
+// build's worth of CPU time even though buildToken (below) discards its
+// result as stale the moment it finally resolves. Rapid edits (e.g.
+// filling in several rows of the asymmetric per-row list one after
+// another) can each land a rebuild() call before the PREVIOUS one's
+// worker round-trip has finished, so without this guard they'd queue up
+// several full builds back to back -- easily 10+ seconds of "Building..."
+// for what should be one ~1-2s build. buildInFlight/rebuildPending caps
+// this at one build running plus at most one more queued, which runs once
+// with whatever the latest form state is by the time it starts.
+let buildInFlight = false;
+let rebuildPending = false;
+
 async function rebuild() {
+  if (buildInFlight) {
+    rebuildPending = true;
+    return;
+  }
   const result = makeTrayParams(readTrayInput());
   const fitWarnings = checkProductFit(result.params, lastFillSpec);
   const filletWarnings = checkFilletProductConflict(result.params, lastFillSpec);
@@ -793,6 +921,7 @@ async function rebuild() {
   setBuildStatus("building", "Building...");
   buildExportable = false;
   refreshExportButtons();
+  buildInFlight = true;
   try {
     const { mesh, edges } = await api.build(lastValidParams);
     if (token !== buildToken) return; // a newer build superseded this one
@@ -821,6 +950,12 @@ async function rebuild() {
     refreshExportButtons();
     setViewportStale(true);
     setBuildStatus("error", "Build failed");
+  } finally {
+    buildInFlight = false;
+    if (rebuildPending) {
+      rebuildPending = false;
+      rebuild(); // one more, coalesced run with whatever the form holds now
+    }
   }
 }
 

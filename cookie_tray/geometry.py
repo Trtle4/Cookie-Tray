@@ -260,14 +260,26 @@ def build_tray(params: TrayParams) -> cq.Workplane:
         cell_fillet = max(cell_fillet, 5.0)
 
     # Columns (n_cols, default 1) split each row's single cell_len-long
-    # channel into n_cols shorter end-to-end sub-cells along X, spaced by
-    # col_pitch (cell_len + col_divider) -- mirrors the row spacing above,
-    # on the orthogonal axis. n_cols=1 collapses cx to 0.0 for every j,
-    # identical to the pre-columns single-cut-per-row behavior.
+    # channel into shorter end-to-end sub-cells along X, spaced by col_pitch
+    # (cell_len + col_divider) -- mirrors the row spacing above, on the
+    # orthogonal axis. Uniform rows (n_cols_per_row unset) give every row
+    # the same n_cols count with row_offset always 0, identical to the
+    # pre-asymmetric behavior (n_cols=1 collapses cx to 0.0 for every j, the
+    # original single-cut-per-row case).
+    #
+    # Asymmetric rows (n_cols_per_row set) can each hold a DIFFERENT cell
+    # count; top_L/max_cols already size the tray to fit the widest row, so
+    # a shorter row is centered within that same footprint rather than
+    # left-aligned -- row_offset is the leftover length split evenly onto
+    # both ends of that row.
+    max_inner_len = p.max_cols * p.cell_len + (p.max_cols - 1) * p.col_divider
     for j in range(p.n_cells):
         cy = -top_W / 2 + p.wall + p.cell_wid / 2 + j * p.pitch
-        for k in range(p.n_cols):
-            cx = -top_L / 2 + p.wall + p.cell_len / 2 + k * p.col_pitch
+        row_count = p.effective_col_counts[j]
+        row_inner_len = row_count * p.cell_len + (row_count - 1) * p.col_divider
+        row_offset = (max_inner_len - row_inner_len) / 2.0
+        for k in range(row_count):
+            cx = -top_L / 2 + p.wall + row_offset + p.cell_len / 2 + k * p.col_pitch
             part = part.cut(
                 trough_neg(cx, cy, p.floor, p.cell_len, p.cell_wid, p.cell_h, p.cradle_r, cell_fillet)
             )

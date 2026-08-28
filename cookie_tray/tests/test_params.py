@@ -259,6 +259,42 @@ def test_col_divider_below_min_divider_raises():
         TrayParams(col_divider=0.5)
 
 
+def test_n_cols_per_row_defaults_to_none_and_max_cols_equals_n_cols():
+    p = TrayParams(n_cols=3)
+    assert p.n_cols_per_row is None
+    assert p.effective_col_counts == [3, 3, 3]
+    assert p.max_cols == 3
+
+
+def test_n_cols_per_row_wrong_length_raises():
+    with pytest.raises(ValueError, match="n_cols_per_row"):
+        TrayParams(n_cells=3, n_cols_per_row=[3, 4])
+
+
+def test_n_cols_per_row_entry_below_one_raises():
+    with pytest.raises(ValueError, match="n_cols_per_row"):
+        TrayParams(n_cells=3, n_cols_per_row=[3, 0, 3])
+
+
+def test_n_cols_per_row_overrides_n_cols_for_effective_counts():
+    p = TrayParams(n_cells=3, n_cols=1, n_cols_per_row=[3, 4, 3])
+    assert p.effective_col_counts == [3, 4, 3]
+    assert p.max_cols == 4
+
+
+def test_n_cols_per_row_uniform_top_L_matches_plain_n_cols():
+    # [3, 3, 3] must build an identical footprint to plain n_cols=3.
+    p_uniform = TrayParams(n_cells=3, n_cols=3, cell_len=50.0, col_divider=3.0)
+    p_per_row = TrayParams(n_cells=3, n_cols_per_row=[3, 3, 3], cell_len=50.0, col_divider=3.0)
+    assert p_per_row.top_L == pytest.approx(p_uniform.top_L)
+
+
+def test_n_cols_per_row_top_L_sized_to_widest_row():
+    p = TrayParams(n_cells=3, n_cols_per_row=[3, 4, 3], cell_len=50.0, wall=3.0, col_divider=3.0)
+    expected = 4 * 50.0 + 2 * 3.0 + 3 * 3.0  # max_cols=4
+    assert p.top_L == pytest.approx(expected)
+
+
 def test_negative_draft_deg_warns_and_clamps_to_zero():
     with pytest.warns(UserWarning, match="draft_deg is negative"):
         p = TrayParams(draft_deg=-10.0)

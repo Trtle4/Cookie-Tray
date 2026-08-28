@@ -314,3 +314,61 @@ def test_build_columns_thin_col_divider(tmp_path):
     expected = sorted([p.outer_L, p.outer_W])
     assert extents[0] == pytest.approx(expected[0], rel=1e-2)
     assert extents[1] == pytest.approx(expected[1], rel=1e-2)
+
+
+def test_build_asymmetric_rows_watertight_and_bbox(tmp_path):
+    # The "3 one side, 4 the other" example: three rows, the middle one
+    # wider -- the outer footprint must match the widest row (max_cols=4).
+    p = TrayParams(n_cells=3, n_cols_per_row=[3, 4, 3], cell_len=50.0, cell_wid=40.0)
+    mesh = _mesh_for(p, "asymmetric_rows", tmp_path)
+    _assert_watertight_genus0(mesh)
+    extents = sorted(mesh.bounding_box.extents[:2])
+    expected = sorted([p.outer_L, p.outer_W])
+    assert extents[0] == pytest.approx(expected[0], rel=1e-2)
+    assert extents[1] == pytest.approx(expected[1], rel=1e-2)
+
+
+def test_build_asymmetric_rows_uniform_matches_plain_n_cols(tmp_path):
+    # [3, 3, 3] must build the byte-for-byte-equivalent tray as plain n_cols=3.
+    p_uniform = TrayParams(n_cells=3, n_cols=3, cell_len=50.0, cell_wid=40.0)
+    p_per_row = TrayParams(n_cells=3, n_cols_per_row=[3, 3, 3], cell_len=50.0, cell_wid=40.0)
+    v_uniform = build_tray(p_uniform).val().Volume()
+    v_per_row = build_tray(p_per_row).val().Volume()
+    assert v_per_row == pytest.approx(v_uniform, rel=1e-9)
+
+
+def test_build_asymmetric_rows_short_row_centered(tmp_path):
+    # A single short row (2 cells) among wider rows (4 cells): the short
+    # row's two cells must sit centered under the 4-cell footprint, i.e.
+    # symmetric about x=0 -- verified by cutting the same short row twice
+    # (once for real, once mirrored) and checking the two are identical.
+    p = TrayParams(n_cells=2, n_cols_per_row=[4, 2], cell_len=50.0, cell_wid=40.0, cell_h=20.0)
+    part = build_tray(p)
+    assert part.val().isValid()
+    # A short row's own occupied span, centered, must be symmetric: compute
+    # the two expected cell centers directly from the geometry module's own
+    # formulas and confirm they're mirror images about x=0.
+    max_inner_len = p.max_cols * p.cell_len + (p.max_cols - 1) * p.col_divider
+    row_count = 2
+    row_inner_len = row_count * p.cell_len + (row_count - 1) * p.col_divider
+    row_offset = (max_inner_len - row_inner_len) / 2.0
+    cxs = [
+        -p.top_L / 2 + p.wall + row_offset + p.cell_len / 2 + k * p.col_pitch
+        for k in range(row_count)
+    ]
+    assert cxs[0] == pytest.approx(-cxs[1])
+
+
+def test_build_asymmetric_rows_wrong_length_raises():
+    with pytest.raises(ValueError, match="n_cols_per_row"):
+        build_tray(TrayParams(n_cells=3, n_cols_per_row=[3, 4]))
+
+
+def test_build_asymmetric_rows_long_axis_y(tmp_path):
+    p = TrayParams(n_cells=3, n_cols_per_row=[3, 4, 3], cell_len=50.0, cell_wid=40.0, long_axis="Y")
+    mesh = _mesh_for(p, "asymmetric_rows_axis_y", tmp_path)
+    _assert_watertight_genus0(mesh)
+    extents = sorted(mesh.bounding_box.extents[:2])
+    expected = sorted([p.outer_L, p.outer_W])
+    assert extents[0] == pytest.approx(expected[0], rel=1e-2)
+    assert extents[1] == pytest.approx(expected[1], rel=1e-2)

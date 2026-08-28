@@ -167,11 +167,21 @@ function troughNeg(cx, cy, floor, cellLen, cellWid, cellH, cradleR, fil) {
  */
 export function buildTray(p) {
   const R = Math.min(p.cradleR, p.cellWid / 2);
-  // Outer walls (both ends) are `wall`; the nCols-1 internal dividers
+  // Per-row cell count -- nColsPerRow verbatim when it's a valid array
+  // (asymmetric layout), else nCols uniformly for every row (the default,
+  // pre-asymmetric behavior).
+  const effectiveColCounts =
+    p.nColsPerRow != null && p.nColsPerRow.length === p.nCells ? p.nColsPerRow : new Array(p.nCells).fill(p.nCols);
+  // The row with the most cells -- this sizes topL so every row's cells
+  // fit, including the widest one; shorter rows are then centered within
+  // that same footprint (see the cell-cutting loop below).
+  const maxCols = Math.max(...effectiveColCounts, 1);
+  // Outer walls (both ends) are `wall`; the maxCols-1 internal dividers
   // between column-cells are `colDivider`. Mirrors topW below on the
-  // orthogonal axis; nCols=1 (the default) collapses this back to the
-  // original cellLen + 2*wall.
-  const topL = p.nCols * p.cellLen + 2 * p.wall + (p.nCols - 1) * p.colDivider;
+  // orthogonal axis; uniform rows (nColsPerRow unset) collapse maxCols back
+  // to plain nCols -- identical to the original cellLen + 2*wall formula
+  // when nCols=1.
+  const topL = maxCols * p.cellLen + 2 * p.wall + (maxCols - 1) * p.colDivider;
   // Outer walls (both sides) are `wall`; the nCells-1 internal dividers
   // between cells are `divider`.
   const topW = p.nCells * p.cellWid + 2 * p.wall + (p.nCells - 1) * p.divider;
@@ -235,14 +245,24 @@ export function buildTray(p) {
   }
 
   // Columns (nCols, default 1) split each row's single cellLen-long channel
-  // into nCols shorter end-to-end sub-cells along X, spaced by colPitch
-  // (cellLen + colDivider) -- mirrors the row spacing above, on the
-  // orthogonal axis. nCols=1 collapses cx to 0 for every j, identical to
-  // the pre-columns single-cut-per-row behavior.
+  // into shorter end-to-end sub-cells along X, spaced by colPitch (cellLen +
+  // colDivider) -- mirrors the row spacing above, on the orthogonal axis.
+  // Uniform rows (nColsPerRow unset) give every row the same nCols count
+  // with rowOffset always 0, identical to the pre-asymmetric behavior
+  // (nCols=1 collapses cx to 0 for every j, the original single-cut case).
+  //
+  // Asymmetric rows (nColsPerRow set) can each hold a DIFFERENT cell count;
+  // topL/maxCols already size the tray to fit the widest row, so a shorter
+  // row is centered within that same footprint rather than left-aligned --
+  // rowOffset is the leftover length split evenly onto both ends of that row.
+  const maxInnerLen = maxCols * p.cellLen + (maxCols - 1) * p.colDivider;
   for (let j = 0; j < p.nCells; j++) {
     const cy = -topW / 2 + p.wall + p.cellWid / 2 + j * pitch;
-    for (let k = 0; k < p.nCols; k++) {
-      const cx = -topL / 2 + p.wall + p.cellLen / 2 + k * colPitch;
+    const rowCount = effectiveColCounts[j];
+    const rowInnerLen = rowCount * p.cellLen + (rowCount - 1) * p.colDivider;
+    const rowOffset = (maxInnerLen - rowInnerLen) / 2;
+    for (let k = 0; k < rowCount; k++) {
+      const cx = -topL / 2 + p.wall + rowOffset + p.cellLen / 2 + k * colPitch;
       part = part.cut(troughNeg(cx, cy, p.floor, p.cellLen, p.cellWid, p.cellH, R, cellFillet));
     }
   }

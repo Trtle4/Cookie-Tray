@@ -165,9 +165,21 @@
                   </div>
                 </div>
                 <div class="field">
+                  <span class="label">Layout</span>
+                  <div class="seg" id="layout-mode-seg">
+                    <button type="button" class="seg-btn" data-seg-value="uniform">Uniform</button>
+                    <button type="button" class="seg-btn" data-seg-value="custom">Custom</button>
+                  </div>
+                </div>
+                <div class="field" id="nCols-uniform-field">
                   <label for="f-nCols">Columns</label>
                   <div class="in"><input id="f-nCols" type="number" name="nCols" value="1" min="1" step="1" /></div>
                   <div class="hint">splits each cell into this many side by side, grid-style</div>
+                </div>
+                <div class="field" id="nCols-per-row-field" style="display: none">
+                  <span class="label">Cells per row</span>
+                  <div id="col-per-row-list"></div>
+                  <div class="hint">Give each row its own cell count — shorter rows are centered; the tray's outer size follows the widest row.</div>
                 </div>
                 <div class="row2">
                   <div class="field" data-suggestable="cellLen">
